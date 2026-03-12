@@ -1,0 +1,1071 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>Vonerlec — Pointage BTP</title>
+  <meta name="theme-color" content="#FF5A1F" />
+  <link rel="manifest" href="data:application/json;base64,eyJuYW1lIjoiVm9uZXJsZWMiLCJzaG9ydF9uYW1lIjoiVm9uZXJsZWMiLCJzdGFydF91cmwiOiIuIiwiZGlzcGxheSI6InN0YW5kYWxvbmUiLCJiYWNrZ3JvdW5kX2NvbG9yIjoiIzBEMEUxNiIsInRoZW1lX2NvbG9yIjoiI0ZGNUExRiJ9" />
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body { background: #0B0C14; font-family: 'DM Sans', sans-serif; color: #f0f0f0; }
+    #root { min-height: 100%; }
+  </style>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useMemo } = React;
+
+// ─── CONFIG ───────────────────────────────────────────────────────────────────
+// Mot de passe hashé en SHA-256 (remplacer par votre propre hash)
+// Pour générer : dans la console JS → crypto.subtle.digest('SHA-256', new TextEncoder().encode('votre_mdp')).then(b=>Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join(''))
+const _HASH = "a0c299b71a9e59d5ebb07917e70601a3570aa103e99a7bb65a58e780ec9077b5"; // VONvon1!
+const SECRET = "VONERLEC_SECRET_2026";
+const COULEURS = ["#FF5A1F","#4ECDC4","#F7B731","#7C5CBF","#26de81","#FC5C65","#45AAF2","#FD9644"];
+const FIREBASE_URL = "https://vonerlec-badge-default-rtdb.europe-west1.firebasedatabase.app";
+
+// ─── HASH UTIL ───────────────────────────────────────────────────────────────
+async function sha256(text) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(x => x.toString(16).padStart(2,'0')).join('');
+}
+
+// ─── FIREBASE ─────────────────────────────────────────────────────────────────
+async function fbGet(path) {
+  try { const r=await fetch(`${FIREBASE_URL}/${path}.json`); return await r.json(); } catch { return null; }
+}
+async function fbSet(path, value) {
+  try { await fetch(`${FIREBASE_URL}/${path}.json`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(value)}); } catch {}
+}
+async function fbPush(path, value) {
+  try { const r=await fetch(`${FIREBASE_URL}/${path}.json`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(value)}); return await r.json(); } catch { return null; }
+}
+async function fbDelete(path) {
+  try { await fetch(`${FIREBASE_URL}/${path}.json`,{method:"DELETE"}); } catch {}
+}
+
+// ─── STORAGE LOCAL ────────────────────────────────────────────────────────────
+function loadLocal(key) { try{const v=localStorage.getItem(key);return v?JSON.parse(v):null;}catch{return null;} }
+function saveLocal(key,value) { try{if(value===null)localStorage.removeItem(key);else localStorage.setItem(key,JSON.stringify(value));}catch{} }
+
+// ─── DEVICE ANTI-TRICHE ───────────────────────────────────────────────────────
+function getDeviceId() {
+  let id=localStorage.getItem("vonerlec:deviceId");
+  if(!id){id="dev_"+Date.now().toString(36)+Math.random().toString(36).slice(2,8);localStorage.setItem("vonerlec:deviceId",id);}
+  return id;
+}
+function deviceDejaPointe(chantierId, type) {
+  const today=new Date().toDateString();
+  const hist=JSON.parse(localStorage.getItem("vonerlec:device_pointage")||"[]");
+  return hist.find(h=>h.deviceId===getDeviceId()&&h.chantierId===chantierId&&h.date===today&&h.type===type);
+}
+function enregistrerDevicePointage(chantierId, nomComplet, type) {
+  const today=new Date().toDateString();
+  const hist=JSON.parse(localStorage.getItem("vonerlec:device_pointage")||"[]");
+  const recent=hist.filter(h=>(new Date()-new Date(h.date))<30*24*3600*1000);
+  recent.push({deviceId:getDeviceId(),chantierId,date:today,nom:nomComplet,type,ts:new Date().toISOString()});
+  localStorage.setItem("vonerlec:device_pointage",JSON.stringify(recent));
+}
+function etatJourDevice(chantierId) {
+  const today=new Date().toDateString();
+  const hist=JSON.parse(localStorage.getItem("vonerlec:device_pointage")||"[]");
+  const deviceId=getDeviceId();
+  const todayEntries=hist.filter(h=>h.deviceId===deviceId&&h.chantierId===chantierId&&h.date===today);
+  const hasEntree=todayEntries.some(h=>h.type==="entree");
+  const hasSortie=todayEntries.some(h=>h.type==="sortie");
+  if(hasEntree&&hasSortie) return "les_deux";
+  if(hasEntree) return "entree";
+  return null;
+}
+
+// ─── UTILS ────────────────────────────────────────────────────────────────────
+function haversineDistance(lat1,lon1,lat2,lon2) {
+  const R=6371000,dLat=(lat2-lat1)*Math.PI/180,dLon=(lon2-lon1)*Math.PI/180;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function generateToken(chantierId,version) {
+  const str=`${chantierId}::v${version}::${SECRET}`;let h=5381;
+  for(let i=0;i<str.length;i++) h=((h<<5)+h)^str.charCodeAt(i);
+  return Math.abs(h>>>0).toString(36).toUpperCase().padStart(8,"0");
+}
+function fmt(ts,mode="time") {
+  const d=new Date(ts);
+  if(mode==="time") return d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+  if(mode==="date") return d.toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"2-digit"});
+  if(mode==="dateFull") return d.toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"numeric"});
+  return d.toLocaleString("fr-FR");
+}
+function encodeQRData(ch) {
+  const version=ch.qrVersion||1,token=generateToken(ch.id,version);
+  return btoa(unescape(encodeURIComponent(JSON.stringify({i:ch.id,t:token,v:version,n:ch.nom,a:ch.adresse||"",la:ch.lat,lo:ch.lon,r:ch.rayon,c:ch.couleur}))));
+}
+function decodeQRData(hash) {
+  try {
+    if(!hash.startsWith("#badge/")) return null;
+    const data=JSON.parse(decodeURIComponent(escape(atob(hash.replace("#badge/","")))));
+    if(data.t!==generateToken(data.i,data.v)) return null;
+    return {id:data.i,nom:data.n,adresse:data.a,lat:data.la,lon:data.lo,rayon:data.r,couleur:data.c,qrVersion:data.v};
+  } catch{return null;}
+}
+function nomCle(nom,prenom) { return (nom+"_"+prenom).toUpperCase(); }
+
+// ─── EXCEL EXPORT ─────────────────────────────────────────────────────────────
+function exporterExcel(pointages, chantiers) {
+  // Grouper par salarié+date+chantier → arrivée/départ sur même ligne
+  const lignes = [];
+  const grouped = {};
+  pointages.forEach(p => {
+    const dateStr = new Date(p.timestamp).toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"numeric"});
+    const key = `${nomCle(p.nom,p.prenom)}__${dateStr}__${p.chantierId}`;
+    if(!grouped[key]) grouped[key] = { nom: p.nom, prenom: p.prenom, chantier: p.chantierNom, date: dateStr, entree: null, sortie: null, distEntree: null, distSortie: null, manuelEntree: false, manuelSortie: false };
+    if(p.type === "entree" || p.type !== "sortie") {
+      if(!grouped[key].entree) { grouped[key].entree = fmt(p.timestamp); grouped[key].distEntree = p.distance; grouped[key].manuelEntree = !!p.manuel; }
+    }
+    if(p.type === "sortie") {
+      if(!grouped[key].sortie) { grouped[key].sortie = fmt(p.timestamp); grouped[key].distSortie = p.distance; grouped[key].manuelSortie = !!p.manuel; }
+    }
+  });
+
+  Object.values(grouped).forEach(g => {
+    // Calcul durée
+    let duree = "";
+    if(g.entree && g.sortie) {
+      try {
+        const [he, me] = g.entree.split(":");
+        const [hs, ms] = g.sortie.split(":");
+        const diffMin = (parseInt(hs)*60+parseInt(ms)) - (parseInt(he)*60+parseInt(me));
+        if(diffMin > 0) {
+          const h = Math.floor(diffMin/60);
+          const m = diffMin % 60;
+          duree = `${h}h${m.toString().padStart(2,"0")}`;
+        }
+      } catch {}
+    }
+    lignes.push({
+      "Date": g.date,
+      "Nom": g.nom,
+      "Prénom": g.prenom,
+      "Chantier": g.chantier,
+      "Arrivée": g.entree || "—",
+      "Départ": g.sortie || "—",
+      "Durée": duree || "—",
+      "GPS Arrivée (m)": g.distEntree != null ? g.distEntree : "—",
+      "GPS Départ (m)": g.distSortie != null ? g.distSortie : "—",
+      "Manuel": (g.manuelEntree || g.manuelSortie) ? "Oui" : "Non"
+    });
+  });
+
+  // Trier par date décroissante puis nom
+  lignes.sort((a,b) => {
+    const [da,ma,ya] = a["Date"].split("/");
+    const [db,mb,yb] = b["Date"].split("/");
+    const dA = new Date(`${ya}-${ma}-${da}`);
+    const dB = new Date(`${yb}-${mb}-${db}`);
+    if(dB - dA !== 0) return dB - dA;
+    return a["Nom"].localeCompare(b["Nom"]);
+  });
+
+  const ws = XLSX.utils.json_to_sheet(lignes);
+  // Largeur des colonnes
+  ws["!cols"] = [
+    {wch:12},{wch:16},{wch:14},{wch:22},{wch:10},{wch:10},{wch:8},{wch:16},{wch:16},{wch:8}
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Pointages");
+
+  // Feuille résumé par salarié
+  const resumeMap = {};
+  lignes.forEach(l => {
+    const k = `${l["Nom"]}_${l["Prénom"]}`;
+    if(!resumeMap[k]) resumeMap[k] = { "Nom": l["Nom"], "Prénom": l["Prénom"], jours: 0, totalMin: 0 };
+    resumeMap[k].jours++;
+    if(l["Durée"] !== "—") {
+      const match = l["Durée"].match(/(\d+)h(\d+)/);
+      if(match) resumeMap[k].totalMin += parseInt(match[1])*60 + parseInt(match[2]);
+    }
+  });
+  const resume = Object.values(resumeMap).map(r => ({
+    "Nom": r["Nom"],
+    "Prénom": r["Prénom"],
+    "Jours pointés": r.jours,
+    "Heures totales": r.totalMin > 0 ? `${Math.floor(r.totalMin/60)}h${(r.totalMin%60).toString().padStart(2,"0")}` : "—"
+  }));
+  const ws2 = XLSX.utils.json_to_sheet(resume);
+  ws2["!cols"] = [{wch:16},{wch:14},{wch:14},{wch:16}];
+  XLSX.utils.book_append_sheet(wb, ws2, "Résumé salariés");
+
+  const dateNow = new Date().toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"numeric"}).replace(/\//g,"-");
+  XLSX.writeFile(wb, `Vonerlec_Rapport_${dateNow}.xlsx`);
+}
+
+// ─── CSS ──────────────────────────────────────────────────────────────────────
+const css=`
+  ::-webkit-scrollbar{width:4px} ::-webkit-scrollbar-thumb{background:#FF5A1F;border-radius:2px}
+  input,select{outline:none;background:#151724;border:1.5px solid #252840;color:#f0f0f0;border-radius:10px;padding:11px 14px;font-family:'DM Sans',sans-serif;font-size:14px;width:100%;transition:border-color .2s}
+  input:focus,select:focus{border-color:#FF5A1F;box-shadow:0 0 0 3px rgba(255,90,31,.1)} input::placeholder{color:#3a3d55}
+  button{cursor:pointer;font-family:'DM Sans',sans-serif}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes pop{0%{transform:scale(.85);opacity:0}65%{transform:scale(1.04)}100%{transform:scale(1);opacity:1}}
+  @keyframes slideDown{from{opacity:0;transform:translate(-50%,-20px)}to{opacity:1;transform:translate(-50%,0)}}
+  @keyframes ping{0%{transform:scale(1);opacity:1}75%,100%{transform:scale(2.2);opacity:0}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+  .anim{animation:fadeIn .35s ease forwards} .pop{animation:pop .45s ease forwards}
+  .card{background:#12131E;border-radius:14px;border:1px solid #1C1F35}
+  .card:hover{border-color:#252840}
+`;
+
+// ─── COMPOSANTS BASE ──────────────────────────────────────────────────────────
+function Btn({children,onClick,variant="primary",disabled,small,full,style:s}) {
+  const base={display:"inline-flex",alignItems:"center",gap:8,justifyContent:"center",borderRadius:10,fontWeight:600,border:"none",cursor:disabled?"not-allowed":"pointer",opacity:disabled?.5:1,transition:"all .2s",padding:small?"8px 16px":"12px 22px",fontSize:small?13:14,width:full?"100%":undefined,...s};
+  const v={primary:{background:"linear-gradient(135deg,#FF5A1F,#FF7A45)",color:"#fff",boxShadow:"0 2px 12px rgba(255,90,31,.25)"},secondary:{background:"#1C1F35",color:"#bbb",border:"1.5px solid #252840"},danger:{background:"#2a1218",color:"#fc5c65",border:"1.5px solid #fc5c6533"},success:{background:"#0f2a1f",color:"#26de81",border:"1.5px solid #26de8133"},ghost:{background:"transparent",color:"#666",border:"1.5px solid #252840"}};
+  return <button style={{...base,...v[variant]}} onClick={disabled?undefined:onClick}>{children}</button>;
+}
+function Tag({color,children}) {
+  return <span style={{display:"inline-block",padding:"3px 10px",borderRadius:20,background:color+"18",color,fontSize:11,fontWeight:600,border:`1px solid ${color}33`,letterSpacing:.3}}>{children}</span>;
+}
+function Modal({children,onClose,width=520}) {
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}} onClick={onClose}>
+      <div className="anim" style={{background:"#12131E",borderRadius:18,padding:28,width:"100%",maxWidth:width,border:"1px solid #252840",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 24px 80px rgba(0,0,0,.6)"}} onClick={e=>e.stopPropagation()}>
+        {children}
+      </div>
+    </div>
+  );
+}
+function Toast({msg,sub,onClose}) {
+  useEffect(()=>{const t=setTimeout(onClose,6000);return()=>clearTimeout(t);},[]);
+  return (
+    <div onClick={onClose} style={{position:"fixed",top:16,left:"50%",zIndex:2000,background:"#0f2a1f",border:"1.5px solid #26de81",borderRadius:14,padding:"14px 20px",display:"flex",alignItems:"center",gap:14,minWidth:280,maxWidth:400,boxShadow:"0 12px 40px rgba(0,0,0,.6)",cursor:"pointer",animation:"slideDown .4s ease forwards"}}>
+      <div style={{position:"relative",flexShrink:0}}>
+        <div style={{width:10,height:10,borderRadius:"50%",background:"#26de81"}}/>
+        <div style={{position:"absolute",inset:0,borderRadius:"50%",background:"#26de81",animation:"ping 1.2s ease-out infinite"}}/>
+      </div>
+      <div><div style={{color:"#26de81",fontWeight:700,fontSize:14}}>{msg}</div>{sub&&<div style={{color:"#26de8188",fontSize:12,marginTop:2}}>{sub}</div>}</div>
+      <div style={{marginLeft:"auto",color:"#26de8144",fontSize:20}}>×</div>
+    </div>
+  );
+}
+
+// ─── PAGE BADGEAGE ────────────────────────────────────────────────────────────
+function BadgePage({chantier}) {
+  const [nom,setNom]=useState("");
+  const [prenom,setPrenom]=useState("");
+  const [savedWorker,setSavedWorker]=useState(null);
+  const [type,setType]=useState("entree");
+  const [etatJour,setEtatJour]=useState(null);
+  const [status,setStatus]=useState("form");
+  const [error,setError]=useState("");
+  const [result,setResult]=useState(null);
+
+  useEffect(()=>{
+    const w=loadLocal("vonerlec:identite");
+    if(w?.nom&&w?.prenom){setSavedWorker(w);setNom(w.nom);setPrenom(w.prenom);}
+    if(chantier){
+      const etat=etatJourDevice(chantier.id);
+      setEtatJour(etat);
+      if(etat==="entree") setType("sortie");
+      else setType("entree");
+    }
+  },[]);
+
+  if(!chantier) return (
+    <div style={{minHeight:"100vh",background:"#0B0C14",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <style>{css}</style>
+      <div style={{textAlign:"center",background:"#12131E",borderRadius:18,padding:32,border:"1px solid #fc5c6533",maxWidth:360}}>
+        <div style={{fontSize:60,marginBottom:12}}>❌</div>
+        <div style={{fontFamily:"'Barlow Condensed'",fontSize:22,color:"#fc5c65",marginBottom:12}}>QR Code invalide</div>
+        <div style={{color:"#666",fontSize:14,lineHeight:1.7}}>Ce QR code a été désactivé.<br/><strong style={{color:"#aaa"}}>Demandez le nouveau QR à votre responsable.</strong></div>
+      </div>
+    </div>
+  );
+
+  if(etatJour==="les_deux") return (
+    <div style={{minHeight:"100vh",background:"#0B0C14",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <style>{css}</style>
+      <div style={{textAlign:"center",background:"#12131E",borderRadius:18,padding:32,border:"1px solid #26de8133",maxWidth:360}}>
+        <div style={{fontSize:60,marginBottom:12}}>✅</div>
+        <div style={{fontFamily:"'Barlow Condensed'",fontSize:22,color:"#26de81",marginBottom:8}}>Journée complète !</div>
+        <div style={{color:"#666",fontSize:14,lineHeight:1.7}}>Vous avez pointé votre <strong style={{color:"#aaa"}}>arrivée et votre départ</strong> aujourd'hui sur <strong style={{color:"#FF5A1F"}}>{chantier.nom}</strong>.<br/>À demain ! 👋</div>
+      </div>
+    </div>
+  );
+
+  function pointer() {
+    if(!nom.trim()||!prenom.trim()){setError("Entrez votre nom et prénom");return;}
+    if(!navigator.geolocation){setError("GPS non disponible");return;}
+    if(deviceDejaPointe(chantier.id,type)){
+      setError(`⛔ Ce téléphone a déjà pointé ${type==="entree"?"l'arrivée":"le départ"} aujourd'hui.`);
+      return;
+    }
+    setStatus("checking");setError("");
+    navigator.geolocation.getCurrentPosition(pos=>{
+      const dist=haversineDistance(pos.coords.latitude,pos.coords.longitude,chantier.lat,chantier.lon);
+      if(dist>chantier.rayon){setStatus("form");setError(`⛔ Vous êtes à ${Math.round(dist)}m du chantier. Zone autorisée : ${chantier.rayon}m.`);return;}
+      const nomComplet=nom.trim().toUpperCase()+" "+prenom.trim();
+      saveLocal("vonerlec:identite",{nom:nom.trim().toUpperCase(),prenom:prenom.trim()});
+      const p={id:Date.now(),chantierId:chantier.id,chantierNom:chantier.nom,nom:nom.trim().toUpperCase(),prenom:prenom.trim(),type,timestamp:new Date().toISOString(),distance:Math.round(dist)};
+      enregistrerDevicePointage(chantier.id,nomComplet,type);
+      fbPush("pointages",p).catch(()=>{});
+      setResult(p);setStatus("success");
+      setEtatJour(type==="entree"?"entree":"les_deux");
+    },(err)=>{
+      setStatus("form");
+      if(err.code===1) setError("⛔ GPS refusé. Autorisez la localisation dans les paramètres.\n\nAndroid : Paramètres → Chrome → Autorisations → Localisation\niOS : Réglages → Safari → Localisation");
+      else setError("GPS indisponible. Vérifiez que le GPS est activé.");
+    },{enableHighAccuracy:true,timeout:15000});
+  }
+
+  const isEntree=type==="entree";
+  const couleurType=isEntree?"#26de81":"#45aaf2";
+
+  return (
+    <div style={{minHeight:"100vh",background:"#0B0C14",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:16}}>
+      <style>{css}</style>
+      {status==="success"?(
+        <div className="pop" style={{textAlign:"center",maxWidth:400,width:"100%",background:"#12131E",borderRadius:18,padding:30,border:`1px solid ${couleurType}33`}}>
+          <div style={{fontSize:80,marginBottom:8}}>{isEntree?"✅":"👋"}</div>
+          <div style={{fontFamily:"'Bebas Neue'",fontSize:36,color:couleurType,letterSpacing:2}}>{isEntree?"ARRIVÉE OK !":"DÉPART OK !"}</div>
+          <div style={{color:"#aaa",marginTop:8,fontSize:15}}>Bonne {isEntree?"journée":"fin de journée"} <strong style={{color:"#fff"}}>{result.prenom} {result.nom}</strong> !</div>
+          <div style={{marginTop:18,background:"#0B0C14",borderRadius:12,padding:"14px 18px",border:"1px solid #1C1F35",textAlign:"left"}}>
+            {[["Chantier",chantier.nom,null],["Type",isEntree?"🟢 Arrivée":"🔵 Départ",couleurType],["Heure",fmt(result.timestamp),"#f0f0f0"],["GPS",`✓ Validée (${result.distance}m)`,"#26de81"]].map(([l,v,c])=>(
+              <div key={l} style={{display:"flex",justifyContent:"space-between",marginBottom:8,fontSize:14}}>
+                <span style={{color:"#666"}}>{l}</span><span style={{fontWeight:700,color:c||"#f0f0f0"}}>{v}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{marginTop:18,background:"#0a0a12",borderRadius:10,padding:"14px 16px",border:"1px solid #252840",textAlign:"center"}}>
+            <div style={{fontSize:28,marginBottom:6}}>☝️</div>
+            <div style={{color:"#888",fontSize:13,fontWeight:600}}>Fermez cet onglet manuellement</div>
+            <div style={{color:"#444",fontSize:12,marginTop:4}}>Appuyez sur le bouton retour ou fermez l'onglet</div>
+          </div>
+        </div>
+      ):(
+        <div style={{width:"100%",maxWidth:420}}>
+          <div style={{background:`linear-gradient(135deg, ${chantier.couleur}, ${chantier.couleur}cc)`,padding:"20px 22px",borderRadius:"16px 16px 0 0"}}>
+            <div style={{fontSize:11,fontWeight:700,letterSpacing:2,opacity:.75,color:"#fff"}}>VONERLEC — POINTAGE</div>
+            <div style={{fontFamily:"'Barlow Condensed'",fontSize:28,fontWeight:800,color:"#fff",lineHeight:1.1,marginTop:4}}>{chantier.nom}</div>
+            {chantier.adresse&&<div style={{fontSize:12,opacity:.7,color:"#fff",marginTop:4}}>📍 {chantier.adresse}</div>}
+          </div>
+          <div style={{background:"#12131E",borderRadius:"0 0 16px 16px",padding:22,border:"1px solid #252840",borderTop:"none"}}>
+            <div style={{display:"flex",gap:10,marginBottom:18}}>
+              {[["entree","🟢 ARRIVÉE","#26de81"],["sortie","🔵 DÉPART","#45aaf2"]].map(([t,label,color])=>{
+                const deja=etatJour==="entree"&&t==="entree";
+                return (
+                  <button key={t} onClick={()=>{if(!deja){setType(t);setError("");}}}
+                    style={{flex:1,padding:"14px 8px",borderRadius:10,border:`2px solid ${type===t&&!deja?color:deja?"#252840":"#252840"}`,background:deja?"#0a0a0a":type===t?color+"18":"#0B0C14",color:deja?"#333":type===t?color:"#555",fontWeight:700,fontSize:14,cursor:deja?"not-allowed":"pointer",transition:"all .2s",letterSpacing:1}}>
+                    {label}
+                    {deja&&<div style={{fontSize:10,fontWeight:600,marginTop:3,color:"#444"}}>✓ déjà pointée</div>}
+                  </button>
+                );
+              })}
+            </div>
+
+            {savedWorker?(
+              <div style={{background:"#1a1030",borderRadius:10,padding:"12px 15px",marginBottom:16,border:"1px solid #3a1a5033",display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:40,height:40,borderRadius:"50%",background:"#7C5CBF33",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>👤</div>
+                <div><div style={{color:"#888",fontSize:12}}>Rebonjour !</div><div style={{fontWeight:700,fontSize:16}}>{savedWorker.prenom} {savedWorker.nom}</div></div>
+                <button onClick={()=>{setSavedWorker(null);setNom("");setPrenom("");saveLocal("vonerlec:identite",null);}} style={{marginLeft:"auto",background:"none",border:"none",color:"#555",fontSize:12,cursor:"pointer",textDecoration:"underline"}}>Ce n'est pas moi</button>
+              </div>
+            ):(
+              <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:16}}>
+                <div><label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>NOM DE FAMILLE</label><input value={nom} onChange={e=>setNom(e.target.value.toUpperCase())} placeholder="MARTIN" disabled={status==="checking"}/></div>
+                <div><label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>PRÉNOM</label><input value={prenom} onChange={e=>setPrenom(e.target.value)} placeholder="Julien" disabled={status==="checking"} onKeyDown={e=>e.key==="Enter"&&pointer()}/></div>
+                <div style={{color:"#555",fontSize:12}}>💾 Votre nom sera mémorisé pour la prochaine fois</div>
+              </div>
+            )}
+
+            <div style={{background:"#0B0C14",borderRadius:10,padding:"10px 14px",border:"1px solid #1C1F35",marginBottom:14,fontSize:12,color:"#555",lineHeight:1.8}}>
+              🛡️ <span style={{color:"#FF5A1F",fontWeight:700}}>Sécurité :</span> GPS vérifié dans {chantier.rayon}m · 1 arrivée + 1 départ max/jour
+            </div>
+            {error&&<div style={{background:"#2a1515",borderRadius:10,padding:"11px 14px",border:"1px solid #fc5c6533",color:"#fc5c65",fontSize:13,marginBottom:14,lineHeight:1.6,whiteSpace:"pre-line"}}>{error}</div>}
+            <button onClick={pointer} disabled={status==="checking"} style={{width:"100%",padding:14,borderRadius:10,border:"none",background:status==="checking"?"#2a2a2a":`linear-gradient(135deg,${couleurType},${couleurType}cc)`,color:status==="checking"?"#fff":isEntree?"#0B0C14":"#fff",fontWeight:800,fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",gap:10,cursor:status==="checking"?"not-allowed":"pointer",letterSpacing:1,boxShadow:status==="checking"?"none":`0 4px 20px ${couleurType}44`}}>
+              {status==="checking"?<><span style={{width:17,height:17,borderRadius:"50%",border:"2px solid #fff3",borderTopColor:isEntree?"#0B0C14":"#fff",display:"inline-block",animation:"spin .7s linear infinite"}}/>Vérification GPS...</>:isEntree?"🟢 POINTER MON ARRIVÉE":"🔵 POINTER MON DÉPART"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── QR MODAL ─────────────────────────────────────────────────────────────────
+function QRModal({chantier,onClose,onChangeQR}) {
+  const [confirming,setConfirming]=useState(false);
+  const version=chantier.qrVersion||1;
+  const link=`${window.location.href.split("#")[0]}#badge/${encodeQRData(chantier)}`;
+  const qrUrl=`https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(link)}&margin=14&color=0D0E16&bgcolor=ffffff`;
+  const changedAt=chantier.qrChangedAt?new Date(chantier.qrChangedAt).toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"numeric"}):"—";
+  return (
+    <Modal onClose={onClose} width={440}>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontFamily:"'Barlow Condensed'",fontSize:22,fontWeight:700,marginBottom:6}}>{chantier.nom}</div>
+        <Tag color="#26de81">QR Code actif · Version {version}</Tag>
+        <div style={{background:"#fff",borderRadius:14,padding:22,margin:"18px auto",display:"inline-block",border:`4px solid ${chantier.couleur}`,lineHeight:0}}>
+          <img src={qrUrl} alt="QR" width={230} height={230} style={{borderRadius:6,display:"block"}}/>
+        </div>
+        <div style={{background:"#0B0C14",borderRadius:10,padding:"12px 16px",marginBottom:14,fontSize:13,textAlign:"left"}}>
+          {[["Statut","🟢 Actif","#26de81"],["Rayon GPS",`${chantier.rayon}m`,null],["Dernier changement",changedAt,"#F7B731"]].map(([l,v,c])=>(
+            <div key={l} style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+              <span style={{color:"#666"}}>{l}</span><span style={{color:c||"#f0f0f0",fontWeight:c?700:400}}>{v}</span>
+            </div>
+          ))}
+        </div>
+        {!confirming?(
+          <div style={{background:"#1a1010",borderRadius:10,padding:"12px 16px",marginBottom:16,border:"1px solid #fc5c6522",textAlign:"left"}}>
+            <div style={{color:"#fc5c65",fontWeight:700,fontSize:13,marginBottom:6}}>🔄 Changer le QR code</div>
+            <div style={{color:"#666",fontSize:12,lineHeight:1.6,marginBottom:10}}>L'ancien QR sera <strong style={{color:"#fc5c65"}}>immédiatement invalide</strong>.</div>
+            <Btn full onClick={()=>setConfirming(true)} variant="danger" small>🔄 Générer un nouveau QR</Btn>
+          </div>
+        ):(
+          <div style={{background:"#2a1010",borderRadius:10,padding:"14px 16px",marginBottom:16,border:"1px solid #fc5c65",textAlign:"left"}}>
+            <div style={{color:"#fc5c65",fontWeight:700,marginBottom:8}}>⚠️ Êtes-vous sûr ?</div>
+            <div style={{color:"#888",fontSize:13,marginBottom:14}}>L'ancien QR sera invalide <strong style={{color:"#fff"}}>immédiatement</strong>.</div>
+            <div style={{display:"flex",gap:10}}>
+              <Btn full onClick={()=>{onChangeQR(chantier.id);setConfirming(false);}} variant="danger">✅ Confirmer</Btn>
+              <Btn full onClick={()=>setConfirming(false)} variant="ghost">Annuler</Btn>
+            </div>
+          </div>
+        )}
+        <Btn full onClick={()=>window.print()} variant="secondary" style={{marginBottom:8}}>🖨️ Imprimer le QR</Btn>
+        <Btn full onClick={onClose} variant="ghost">Fermer</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── PRÉSENCE CHANTIER MODAL ─────────────────────────────────────────────────
+function PresenceModal({chantier, pointages, onClose, onPurgeSalarie}) {
+  const today=new Date().toDateString();
+  const todayP=pointages.filter(p=>p.chantierId===chantier.id&&new Date(p.timestamp).toDateString()===today);
+  const historiqueP=pointages.filter(p=>p.chantierId===chantier.id&&new Date(p.timestamp).toDateString()!==today);
+
+  const arrivees=todayP.filter(p=>p.type!=="sortie");
+  const departs=new Set(todayP.filter(p=>p.type==="sortie").map(p=>nomCle(p.nom,p.prenom)));
+  const presents=arrivees.filter(p=>!departs.has(nomCle(p.nom,p.prenom)));
+  const partis=arrivees.filter(p=>departs.has(nomCle(p.nom,p.prenom)));
+
+  const connusKeys=new Set(historiqueP.map(p=>nomCle(p.nom,p.prenom)));
+  const todayKeys=new Set(todayP.map(p=>nomCle(p.nom,p.prenom)));
+  const absents=[...connusKeys].filter(k=>!todayKeys.has(k)).map(k=>{
+    const last=historiqueP.filter(p=>nomCle(p.nom,p.prenom)===k).sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp))[0];
+    return last;
+  });
+
+  function purge(p) {
+    if(window.confirm(`Purger les pointages d'aujourd'hui de ${p.prenom} ${p.nom} sur ${chantier.nom} ?\n\nCela supprimera arrivée ET départ.`)) {
+      onPurgeSalarie(chantier.id, p.nom, p.prenom);
+    }
+  }
+
+  return (
+    <Modal onClose={onClose} width={480}>
+      <div style={{fontFamily:"'Barlow Condensed'",fontSize:22,fontWeight:700,marginBottom:4}}>{chantier.nom}</div>
+      <div style={{color:"#666",fontSize:13,marginBottom:20}}>{new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"2-digit",month:"long"})}</div>
+
+      {presents.length>0&&(
+        <div style={{marginBottom:18}}>
+          <div style={{color:"#26de81",fontSize:11,fontWeight:700,letterSpacing:1,marginBottom:8}}>🟢 SUR LE CHANTIER ({presents.length})</div>
+          {presents.map(p=>(
+            <div key={p.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"#0f2a1f",borderRadius:10,padding:"10px 14px",marginBottom:6,border:"1px solid #26de8122"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:20}}>👷</span>
+                <div><div style={{fontWeight:700,fontSize:14}}>{p.prenom} {p.nom}</div><div style={{color:"#26de8188",fontSize:12}}>Arrivée à {fmt(p.timestamp)}</div></div>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <Tag color="#26de81">Présent</Tag>
+                <button onClick={()=>purge(p)} title="Purger ce salarié" style={{background:"#2a1218",border:"1px solid #fc5c6533",borderRadius:8,color:"#fc5c65",padding:"4px 8px",fontSize:11,cursor:"pointer",fontWeight:600}}>🗑️</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {partis.length>0&&(
+        <div style={{marginBottom:18}}>
+          <div style={{color:"#45aaf2",fontSize:11,fontWeight:700,letterSpacing:1,marginBottom:8}}>🔵 PARTIS AUJOURD'HUI ({partis.length})</div>
+          {partis.map(p=>(
+            <div key={p.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"#0a1525",borderRadius:10,padding:"10px 14px",marginBottom:6,border:"1px solid #45aaf222"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:20}}>👋</span>
+                <div><div style={{fontWeight:700,fontSize:14}}>{p.prenom} {p.nom}</div><div style={{color:"#45aaf288",fontSize:12}}>Parti à {fmt(todayP.find(x=>nomCle(x.nom,x.prenom)===nomCle(p.nom,p.prenom)&&x.type==="sortie")?.timestamp||p.timestamp)}</div></div>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <Tag color="#45aaf2">Parti</Tag>
+                <button onClick={()=>purge(p)} title="Purger ce salarié" style={{background:"#2a1218",border:"1px solid #fc5c6533",borderRadius:8,color:"#fc5c65",padding:"4px 8px",fontSize:11,cursor:"pointer",fontWeight:600}}>🗑️</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {absents.length>0&&(
+        <div style={{marginBottom:18}}>
+          <div style={{color:"#555",fontSize:11,fontWeight:700,letterSpacing:1,marginBottom:8}}>⚫ ABSENTS AUJOURD'HUI ({absents.length})</div>
+          {absents.map(p=>(
+            <div key={p.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"#0B0C14",borderRadius:10,padding:"10px 14px",marginBottom:6,border:"1px solid #1C1F35"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:20,opacity:.4}}>👷</span>
+                <div><div style={{fontWeight:700,fontSize:14,color:"#555"}}>{p.prenom} {p.nom}</div><div style={{color:"#333",fontSize:12}}>Dernière venue : {fmt(p.timestamp,"date")}</div></div>
+              </div>
+              <Tag color="#444">Absent</Tag>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {presents.length===0&&partis.length===0&&absents.length===0&&(
+        <div style={{textAlign:"center",padding:"30px 0",color:"#444",fontSize:14}}>Aucun salarié connu sur ce chantier</div>
+      )}
+      <Btn full onClick={onClose} variant="ghost" style={{marginTop:8}}>Fermer</Btn>
+    </Modal>
+  );
+}
+
+// ─── SAISIE MANUELLE ──────────────────────────────────────────────────────────
+function SaisieManuelleModal({chantiers,onSave,onClose}) {
+  const [form,setForm]=useState({nom:"",prenom:"",chantierId:chantiers[0]?.id||"",type:"entree",date:new Date().toISOString().slice(0,10),heure:new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})});
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+  function valider() {
+    if(!form.nom.trim()||!form.prenom.trim()){alert("Nom et prénom requis");return;}
+    const ch=chantiers.find(c=>c.id==form.chantierId);
+    const [h,m]=form.heure.split(":");
+    const ts=new Date(`${form.date}T${h.padStart(2,"0")}:${m.padStart(2,"0")}:00`).toISOString();
+    onSave({id:Date.now(),chantierId:ch.id,chantierNom:ch.nom,nom:form.nom.trim().toUpperCase(),prenom:form.prenom.trim(),type:form.type,timestamp:ts,distance:0,manuel:true});
+  }
+  return (
+    <Modal onClose={onClose} width={440}>
+      <div style={{fontFamily:"'Barlow Condensed'",fontSize:22,fontWeight:700,marginBottom:6}}>✏️ Saisie manuelle</div>
+      <div style={{color:"#666",fontSize:13,marginBottom:20}}>Pour un pointage oublié par un salarié</div>
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        <div style={{display:"flex",gap:10}}>
+          <div style={{flex:1}}><label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>NOM</label><input value={form.nom} onChange={e=>set("nom",e.target.value.toUpperCase())} placeholder="MARTIN"/></div>
+          <div style={{flex:1}}><label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>PRÉNOM</label><input value={form.prenom} onChange={e=>set("prenom",e.target.value)} placeholder="Julien"/></div>
+        </div>
+        <div><label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>CHANTIER</label>
+          <select value={form.chantierId} onChange={e=>set("chantierId",e.target.value)}>
+            {chantiers.map(c=><option key={c.id} value={c.id}>{c.nom}</option>)}
+          </select>
+        </div>
+        <div><label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>TYPE</label>
+          <div style={{display:"flex",gap:10}}>
+            {[["entree","🟢 Arrivée"],["sortie","🔵 Départ"]].map(([t,label])=>(
+              <button key={t} onClick={()=>set("type",t)} style={{flex:1,padding:"11px 8px",borderRadius:8,border:`2px solid ${form.type===t?"#FF5A1F":"#252840"}`,background:form.type===t?"#FF5A1F18":"#0B0C14",color:form.type===t?"#FF5A1F":"#555",fontWeight:700,fontSize:13,cursor:"pointer"}}>{label}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{display:"flex",gap:10}}>
+          <div style={{flex:1}}><label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>DATE</label><input type="date" value={form.date} onChange={e=>set("date",e.target.value)}/></div>
+          <div style={{flex:1}}><label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>HEURE</label><input type="time" value={form.heure} onChange={e=>set("heure",e.target.value)}/></div>
+        </div>
+        <div style={{background:"#1a1010",borderRadius:8,padding:"10px 14px",border:"1px solid #F7B73133",fontSize:12,color:"#F7B731"}}>⚠️ Ce pointage sera marqué "Manuel" dans l'historique</div>
+      </div>
+      <div style={{display:"flex",gap:10,marginTop:20}}>
+        <Btn full onClick={valider}>✅ Enregistrer</Btn>
+        <Btn full onClick={onClose} variant="ghost">Annuler</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── FORM CHANTIER (FIX ADRESSE) ─────────────────────────────────────────────
+function ChantierForm({initial,onSave,onClose}) {
+  const [form,setForm]=useState(initial||{nom:"",adresse:"",lat:"",lon:"",rayon:200,couleur:"#FF5A1F"});
+  const [searchAdresse,setSearchAdresse]=useState(initial?.adresse||"");
+  const [suggestions,setSuggestions]=useState([]);
+  const [searchStatus,setSearchStatus]=useState(initial?.lat?"selected":"");
+  const [gpsStatus,setGpsStatus]=useState("");
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+
+  async function rechercherAdresse() {
+    if(!searchAdresse.trim())return;setSearchStatus("loading");setSuggestions([]);
+    try {
+      const res=await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(searchAdresse+" France")}&limit=5&lang=fr`);
+      const data=await res.json();
+      const results=(data.features||[]).map(f=>{
+        const p=f.properties;
+        // FIX: inclure le numéro de rue (housenumber) dans le label
+        const parts = [];
+        if(p.housenumber && p.street) parts.push(p.housenumber + " " + p.street);
+        else if(p.street) parts.push(p.street);
+        else if(p.name) parts.push(p.name);
+        if(p.postcode) parts.push(p.postcode);
+        if(p.city) parts.push(p.city);
+        return {
+          label: parts.join(", ") || p.name || "Adresse",
+          lat: f.geometry.coordinates[1].toFixed(6),
+          lon: f.geometry.coordinates[0].toFixed(6)
+        };
+      });
+      if(results.length===1)choisirSuggestion(results[0]);
+      else if(results.length>1){setSuggestions(results);setSearchStatus("ok");}
+      else setSearchStatus("error");
+    }catch{setSearchStatus("error");}
+  }
+  function choisirSuggestion(s){set("adresse",s.label);set("lat",s.lat);set("lon",s.lon);setSearchAdresse(s.label);setSuggestions([]);setSearchStatus("selected");}
+  function useGPS(){
+    if(!navigator.geolocation){setGpsStatus("unavailable");return;}setGpsStatus("loading");
+    navigator.geolocation.getCurrentPosition(p=>{set("lat",p.coords.latitude.toFixed(6));set("lon",p.coords.longitude.toFixed(6));setGpsStatus("ok");},err=>setGpsStatus(err.code===1?"denied":"error"),{enableHighAccuracy:true,timeout:10000});
+  }
+  const coordsOk=form.lat&&form.lon;
+  return (
+    <Modal onClose={onClose}>
+      <div style={{fontFamily:"'Barlow Condensed'",fontSize:22,fontWeight:700,marginBottom:20}}>{initial?.id?"✏️ Modifier":"➕ Nouveau chantier"}</div>
+      <div style={{display:"flex",flexDirection:"column",gap:16}}>
+        <div><label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>NOM DU CHANTIER *</label><input value={form.nom} onChange={e=>set("nom",e.target.value)} placeholder="Résidence Les Pins"/></div>
+        <div>
+          <label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>🔍 RECHERCHE PAR ADRESSE</label>
+          <div style={{display:"flex",gap:8}}>
+            <input value={searchAdresse} onChange={e=>{setSearchAdresse(e.target.value);setSuggestions([]);setSearchStatus("");}} onKeyDown={e=>e.key==="Enter"&&rechercherAdresse()} placeholder="Ex: 12 Rue de la Paix, Lyon" style={{flex:1}}/>
+            <button onClick={rechercherAdresse} disabled={searchStatus==="loading"||!searchAdresse.trim()} style={{background:"linear-gradient(135deg,#FF5A1F,#FF7A45)",border:"none",borderRadius:10,color:"#fff",padding:"0 16px",fontSize:14,fontWeight:700,cursor:"pointer",flexShrink:0}}>
+              {searchStatus==="loading"?"⏳":"🔍"}
+            </button>
+          </div>
+          {searchStatus==="selected"&&<div style={{marginTop:6,background:"#0f2a1f",borderRadius:8,padding:"10px 14px",border:"1px solid #26de8133",fontSize:13,color:"#26de81"}}>✅ Adresse confirmée — {form.adresse}</div>}
+          {suggestions.length>0&&<div style={{marginTop:6}}><div style={{color:"#F7B731",fontSize:12,marginBottom:5,fontWeight:700}}>👇 Cliquez sur votre adresse :</div><div style={{background:"#151724",borderRadius:8,border:"2px solid #FF5A1F",overflow:"hidden"}}>{suggestions.map((s,i)=><div key={i} onClick={()=>choisirSuggestion(s)} style={{padding:"12px 14px",cursor:"pointer",borderBottom:i<suggestions.length-1?"1px solid #252840":"none",fontSize:13,color:"#fff"}} onMouseEnter={e=>e.currentTarget.style.background="#FF5A1F18"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>📍 {s.label}</div>)}</div></div>}
+          {searchStatus==="error"&&<div style={{color:"#F7B731",fontSize:12,marginTop:6}}>⚠️ Introuvable — essayez avec ville ou code postal</div>}
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}><div style={{flex:1,height:1,background:"#252840"}}/><span style={{color:"#444",fontSize:12}}>ou</span><div style={{flex:1,height:1,background:"#252840"}}/></div>
+        <div>
+          <label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>📍 GPS (si vous êtes sur le chantier)</label>
+          <button onClick={useGPS} disabled={gpsStatus==="loading"} style={{width:"100%",background:"#151724",border:`1.5px solid ${gpsStatus==="ok"?"#26de81":gpsStatus==="denied"||gpsStatus==="error"?"#fc5c65":"#252840"}`,borderRadius:10,color:gpsStatus==="ok"?"#26de81":gpsStatus==="denied"||gpsStatus==="error"?"#fc5c65":"#aaa",padding:"11px 14px",fontSize:13,cursor:gpsStatus==="loading"?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+            {gpsStatus==="loading"&&<><span style={{display:"inline-block",animation:"spin .7s linear infinite"}}>🔄</span>Récupération...</>}
+            {gpsStatus==="ok"&&<>✅ Position GPS récupérée !</>}
+            {(gpsStatus==="denied"||gpsStatus==="error")&&<>❌ GPS indisponible</>}
+            {(gpsStatus===""||gpsStatus==="unavailable")&&<>📍 Utiliser ma position actuelle</>}
+          </button>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}><div style={{flex:1,height:1,background:"#252840"}}/><span style={{color:"#444",fontSize:12}}>ou saisir manuellement</span><div style={{flex:1,height:1,background:"#252840"}}/></div>
+        <div>
+          <label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>LATITUDE & LONGITUDE</label>
+          <div style={{display:"flex",gap:10}}>
+            <input value={form.lat} onChange={e=>{set("lat",e.target.value);setSearchStatus(e.target.value?"selected":"");}} placeholder="Latitude  ex: 45.7640"/>
+            <input value={form.lon} onChange={e=>{set("lon",e.target.value);setSearchStatus(e.target.value?"selected":"");}} placeholder="Longitude  ex: 4.8357"/>
+          </div>
+          <div style={{color:"#444",fontSize:11,marginTop:5}}>💡 Google Maps → clic droit → copier les coordonnées</div>
+        </div>
+        {coordsOk&&<div style={{background:"#0f2a1f",borderRadius:8,padding:"8px 14px",border:"1px solid #26de8133",display:"flex",alignItems:"center",gap:10,fontSize:13}}><span>🎯</span><span style={{color:"#26de81"}}>Position enregistrée</span><span style={{color:"#555",marginLeft:"auto",fontSize:12}}>{parseFloat(form.lat).toFixed(4)}, {parseFloat(form.lon).toFixed(4)}</span></div>}
+        <div><label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>RAYON AUTORISÉ (mètres)</label><input type="number" value={form.rayon} onChange={e=>set("rayon",e.target.value)} min={50} max={1000}/><div style={{color:"#444",fontSize:11,marginTop:4}}>100–200m classique · 300–500m grand terrain</div></div>
+        <div><label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:10}}>COULEUR</label><div style={{display:"flex",gap:10,flexWrap:"wrap"}}>{COULEURS.map(c=><div key={c} onClick={()=>set("couleur",c)} style={{width:34,height:34,borderRadius:10,background:c,cursor:"pointer",border:form.couleur===c?"3px solid #fff":"3px solid transparent",transform:form.couleur===c?"scale(1.15)":"scale(1)",transition:"all .15s"}}/>)}</div></div>
+      </div>
+      <div style={{display:"flex",gap:10,marginTop:22}}>
+        <Btn full onClick={()=>{if(!form.nom){alert("Nom requis");return;}if(!form.lat||!form.lon){alert("Position GPS requise");return;}onSave({...form,id:initial?.id,lat:parseFloat(form.lat),lon:parseFloat(form.lon),rayon:parseInt(form.rayon)||200});}}>
+          {initial?.id?"💾 Enregistrer":"✅ Créer le chantier"}
+        </Btn>
+        <Btn full onClick={onClose} variant="ghost">Annuler</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── ADMIN ────────────────────────────────────────────────────────────────────
+function AdminApp({chantiers,pointages,onSaveChantier,onDeleteChantier,onDeletePointage,onChangeQR,onLogout,onRefresh,onAddManuel,onClearAll,onClearToday,onPurgeSalarie}) {
+  const [tab,setTab]=useState("dashboard");
+  const [showQR,setShowQR]=useState(null);
+  const [showPresence,setShowPresence]=useState(null);
+  const [showAdd,setShowAdd]=useState(false);
+  const [editItem,setEditItem]=useState(null);
+  const [showManuel,setShowManuel]=useState(false);
+  const [toast,setToast]=useState(null);
+  const [prevCount,setPrevCount]=useState(pointages.length);
+  const [refreshing,setRefreshing]=useState(false);
+  const [lastRefresh,setLastRefresh]=useState(new Date());
+  const [filterChantier,setFilterChantier]=useState("all");
+  const [filterDate,setFilterDate]=useState("");
+
+  const today=new Date().toDateString();
+  const todayP=pointages.filter(p=>new Date(p.timestamp).toDateString()===today);
+
+  // Grouper les pointages du jour par salarié+chantier pour la vue fusionnée
+  const todayGrouped = useMemo(() => {
+    const map = {};
+    todayP.forEach(p => {
+      const key = nomCle(p.nom, p.prenom) + "__" + p.chantierId;
+      if(!map[key]) map[key] = { nom: p.nom, prenom: p.prenom, chantierId: p.chantierId, chantierNom: p.chantierNom, entree: null, sortie: null };
+      if(p.type === "entree" || p.type !== "sortie") {
+        if(!map[key].entree) map[key].entree = p;
+      }
+      if(p.type === "sortie") {
+        if(!map[key].sortie) map[key].sortie = p;
+      }
+    });
+    return Object.values(map).sort((a,b) => {
+      const tA = a.sortie?.timestamp || a.entree?.timestamp;
+      const tB = b.sortie?.timestamp || b.entree?.timestamp;
+      return new Date(tB) - new Date(tA);
+    });
+  }, [todayP]);
+
+  // Stats
+  const nbPresents = todayGrouped.filter(g => g.entree && !g.sortie).length;
+  const nbPartis = todayGrouped.filter(g => g.entree && g.sortie).length;
+
+  useEffect(()=>{const t=setInterval(()=>{onRefresh();setLastRefresh(new Date());},15000);return()=>clearInterval(t);},[]);
+  useEffect(()=>{
+    if(pointages.length>prevCount&&prevCount>0){
+      const n=pointages[0];
+      setToast({msg:`${n.prenom} ${n.nom} ${n.type==="sortie"?"est parti":"vient d'arriver"} !`,sub:`${n.chantierNom} · ${fmt(n.timestamp)}`});
+    }
+    setPrevCount(pointages.length);
+  },[pointages.length]);
+  useEffect(()=>{if(showQR){const u=chantiers.find(c=>c.id===showQR.id);if(u)setShowQR(u);}},[chantiers]);
+
+  // Filtrage historique
+  const filteredPointages = useMemo(() => {
+    let list = pointages;
+    if(filterChantier !== "all") list = list.filter(p => p.chantierId == filterChantier);
+    if(filterDate) list = list.filter(p => new Date(p.timestamp).toISOString().slice(0,10) === filterDate);
+    return list;
+  }, [pointages, filterChantier, filterDate]);
+
+  return (
+    <div style={{minHeight:"100vh",background:"#0B0C14"}}>
+      <style>{css}</style>
+      {toast&&<Toast msg={toast.msg} sub={toast.sub} onClose={()=>setToast(null)}/>}
+
+      {/* HEADER */}
+      <div style={{background:"#0f1019",borderBottom:"1px solid #1C1F35",padding:"0 20px",display:"flex",alignItems:"center",justifyContent:"space-between",height:60,position:"sticky",top:0,zIndex:100,backdropFilter:"blur(12px)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <span style={{fontSize:26}}>🏗️</span>
+          <div><div style={{fontFamily:"'Bebas Neue'",fontSize:24,letterSpacing:3,color:"#FF5A1F",lineHeight:1}}>VONERLEC</div><div style={{fontSize:9,color:"#444",letterSpacing:1.5,fontWeight:600}}>GESTION DE CHANTIER</div></div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <button onClick={()=>{setRefreshing(true);onRefresh();setLastRefresh(new Date());setTimeout(()=>setRefreshing(false),600);}} style={{background:"#1C1F35",border:"1px solid #252840",borderRadius:10,color:"#888",padding:"7px 14px",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+            <span style={{display:"inline-block",animation:refreshing?"spin .7s linear infinite":"none"}}>🔄</span>
+          </button>
+          <Btn small onClick={onLogout} variant="ghost">Déco.</Btn>
+        </div>
+      </div>
+
+      {/* TABS */}
+      <div style={{background:"#0f1019",borderBottom:"1px solid #1C1F35",padding:"0 20px",display:"flex",gap:4}}>
+        {[["dashboard","📊 Dashboard"],["chantiers","🏗️ Chantiers"],["pointages","📋 Historique"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setTab(id)} style={{background:tab===id?"#FF5A1F18":"none",border:"none",color:tab===id?"#FF5A1F":"#555",padding:"12px 18px",fontSize:13,fontWeight:600,cursor:"pointer",borderBottom:tab===id?"2px solid #FF5A1F":"2px solid transparent",borderRadius:"8px 8px 0 0",transition:"all .2s"}}>
+            {label}
+            {id==="dashboard"&&todayP.length>0&&<span style={{marginLeft:6,background:"#26de81",color:"#000",borderRadius:10,fontSize:10,fontWeight:800,padding:"2px 6px"}}>{todayP.length}</span>}
+          </button>
+        ))}
+      </div>
+
+      <div style={{padding:20,maxWidth:1200,margin:"0 auto"}}>
+
+        {/* ── DASHBOARD ── */}
+        {tab==="dashboard"&&(
+          <div className="anim">
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:18,flexWrap:"wrap",gap:8}}>
+              <div>
+                <div style={{fontFamily:"'Barlow Condensed'",fontSize:26,fontWeight:800}}>{new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"2-digit",month:"long"})}</div>
+                <div style={{color:"#444",fontSize:12,marginTop:2}}>Actualisé à {fmt(lastRefresh.toISOString())} · auto /15s</div>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <Btn small onClick={()=>exporterExcel(pointages, chantiers)} variant="secondary">📊 Export Excel</Btn>
+                <Btn small onClick={()=>setShowManuel(true)} variant="secondary">✏️ Saisie manuelle</Btn>
+              </div>
+            </div>
+
+            {/* Stats */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12,marginBottom:22}}>
+              {[
+                {l:"Chantiers",v:chantiers.length,i:"🏗️",c:"#FF5A1F"},
+                {l:"Sur site",v:nbPresents,i:"🟢",c:"#26de81"},
+                {l:"Partis",v:nbPartis,i:"🔵",c:"#45aaf2"},
+                {l:"Pointages ce jour",v:todayP.length,i:"📋",c:"#F7B731"},
+                {l:"Total historique",v:pointages.length,i:"📆",c:"#7C5CBF"}
+              ].map((s,i)=>(
+                <div key={i} className="card" style={{padding:"16px 18px",borderColor:`${s.c}22`}}>
+                  <div style={{fontSize:22,marginBottom:6}}>{s.i}</div>
+                  <div style={{fontFamily:"'Bebas Neue'",fontSize:36,color:s.c,lineHeight:1}}>{s.v}</div>
+                  <div style={{color:"#555",fontSize:11,marginTop:3,fontWeight:500}}>{s.l}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Activité fusionnée arrivée/départ */}
+            <div className="card" style={{padding:20}}>
+              <div style={{fontFamily:"'Barlow Condensed'",fontSize:18,fontWeight:700,marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
+                👷 Activité du jour {todayGrouped.length>0&&<Tag color="#FF5A1F">{todayGrouped.length} salarié{todayGrouped.length>1?"s":""}</Tag>}
+              </div>
+              {todayGrouped.length===0?<div style={{color:"#444",textAlign:"center",padding:"30px 0",fontSize:14}}>Aucun pointage aujourd'hui</div>
+                :<div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {todayGrouped.map((g,i)=>{
+                    const ch=chantiers.find(c=>c.id===g.chantierId);
+                    const isPresent=g.entree&&!g.sortie;
+                    // Calcul durée
+                    let duree="";
+                    if(g.entree&&g.sortie){
+                      const diffMs=new Date(g.sortie.timestamp)-new Date(g.entree.timestamp);
+                      if(diffMs>0){const h=Math.floor(diffMs/3600000);const m=Math.floor((diffMs%3600000)/60000);duree=`${h}h${m.toString().padStart(2,"0")}`;}
+                    }
+                    return(
+                      <div key={i} style={{display:"flex",alignItems:"center",background:"#0B0C14",borderRadius:12,padding:"12px 16px",border:`1px solid ${isPresent?"#26de8122":"#1C1F35"}`,gap:14}}>
+                        {/* Avatar */}
+                        <div style={{width:42,height:42,borderRadius:"50%",background:(ch?.couleur||"#FF5A1F")+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0,position:"relative"}}>
+                          {isPresent?"👷":"👋"}
+                          {isPresent&&<div style={{position:"absolute",bottom:-1,right:-1,width:12,height:12,borderRadius:"50%",background:"#26de81",border:"2px solid #0B0C14"}}/>}
+                        </div>
+                        {/* Nom + chantier */}
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontWeight:700,fontSize:14}}>{g.prenom} {g.nom}</div>
+                          <div style={{color:"#555",fontSize:12,display:"flex",alignItems:"center",gap:6}}>
+                            <span style={{width:6,height:6,borderRadius:"50%",background:ch?.couleur||"#666",display:"inline-block"}}/>
+                            {g.chantierNom}
+                          </div>
+                        </div>
+                        {/* Arrivée */}
+                        <div style={{textAlign:"center",minWidth:60}}>
+                          <div style={{fontSize:10,color:"#26de81",fontWeight:600,letterSpacing:.5}}>ARRIVÉE</div>
+                          <div style={{fontWeight:700,fontSize:15,color:g.entree?"#f0f0f0":"#333"}}>{g.entree?fmt(g.entree.timestamp):"—"}</div>
+                        </div>
+                        {/* Départ */}
+                        <div style={{textAlign:"center",minWidth:60}}>
+                          <div style={{fontSize:10,color:"#45aaf2",fontWeight:600,letterSpacing:.5}}>DÉPART</div>
+                          <div style={{fontWeight:700,fontSize:15,color:g.sortie?"#f0f0f0":"#333"}}>{g.sortie?fmt(g.sortie.timestamp):"—"}</div>
+                        </div>
+                        {/* Durée */}
+                        <div style={{textAlign:"center",minWidth:50}}>
+                          <div style={{fontSize:10,color:"#F7B731",fontWeight:600,letterSpacing:.5}}>DURÉE</div>
+                          <div style={{fontWeight:700,fontSize:14,color:duree?"#F7B731":"#333"}}>{duree||"..."}</div>
+                        </div>
+                        {/* Status tag */}
+                        <Tag color={isPresent?"#26de81":"#45aaf2"}>{isPresent?"Sur site":"Parti"}</Tag>
+                      </div>
+                    );
+                  })}
+                </div>
+              }
+            </div>
+          </div>
+        )}
+
+        {/* ── CHANTIERS ── */}
+        {tab==="chantiers"&&(
+          <div className="anim">
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+              <div style={{fontFamily:"'Barlow Condensed'",fontSize:24,fontWeight:800}}>Chantiers & QR Codes</div>
+              <Btn onClick={()=>setShowAdd(true)} disabled={chantiers.length>=10}>{chantiers.length>=10?"Max 10":"➕ Nouveau"}</Btn>
+            </div>
+            {chantiers.length===0&&<div style={{textAlign:"center",padding:"50px 20px"}} className="card"><div style={{color:"#555"}}>Aucun chantier — créez-en un pour générer votre premier QR code</div></div>}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:14}}>
+              {chantiers.map(ch=>{
+                const chToday=todayP.filter(p=>p.chantierId===ch.id);
+                const arrivees=chToday.filter(p=>p.type!=="sortie");
+                const departs=new Set(chToday.filter(p=>p.type==="sortie").map(p=>nomCle(p.nom,p.prenom)));
+                const presents=arrivees.filter(p=>!departs.has(nomCle(p.nom,p.prenom)));
+                const ver=ch.qrVersion||1;
+                return(
+                  <div key={ch.id} className="card" style={{overflow:"hidden"}}>
+                    <div style={{background:`linear-gradient(135deg,${ch.couleur},${ch.couleur}aa)`,padding:"14px 18px"}}>
+                      <div style={{fontFamily:"'Barlow Condensed'",fontSize:20,fontWeight:800,color:"#fff"}}>{ch.nom}</div>
+                      <div style={{fontSize:12,color:"#ffffff77",marginTop:2}}>📍 {ch.adresse||"Sans adresse"}</div>
+                    </div>
+                    <div style={{padding:"14px 16px"}}>
+                      <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+                        <Tag color={ch.couleur}>📡 {ch.rayon}m</Tag>
+                        <Tag color="#26de81">🟢 {presents.length} présent{presents.length>1?"s":""}</Tag>
+                        <Tag color="#F7B731">QR v{ver}</Tag>
+                      </div>
+                      {presents.length>0&&(
+                        <div style={{marginBottom:10}}>
+                          {presents.slice(0,3).map(p=>(
+                            <div key={p.id} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderBottom:"1px solid #1C1F35"}}>
+                              <span style={{width:8,height:8,borderRadius:"50%",background:"#26de81",flexShrink:0,display:"inline-block"}}/>
+                              <span style={{fontSize:13,fontWeight:600}}>{p.prenom} {p.nom}</span>
+                              <span style={{marginLeft:"auto",fontSize:12,color:"#26de8188"}}>{fmt(p.timestamp)}</span>
+                            </div>
+                          ))}
+                          {presents.length>3&&<div style={{color:"#555",fontSize:12,marginTop:4}}>+{presents.length-3} autre{presents.length-3>1?"s":""}</div>}
+                        </div>
+                      )}
+                      <div style={{display:"flex",gap:8}}>
+                        <Btn small full onClick={()=>setShowPresence(ch)}>👥 Présences</Btn>
+                        <Btn small full onClick={()=>setShowQR(ch)}>📱 QR</Btn>
+                        <Btn small onClick={()=>setEditItem(ch)} variant="ghost">✏️</Btn>
+                        <Btn small onClick={()=>{if(window.confirm("Supprimer ce chantier ?"))onDeleteChantier(ch.id);}} variant="danger">🗑️</Btn>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ── HISTORIQUE ── */}
+        {tab==="pointages"&&(
+          <div className="anim">
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
+              <div style={{fontFamily:"'Barlow Condensed'",fontSize:24,fontWeight:800}}>Historique des pointages</div>
+              <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                <Btn small onClick={()=>exporterExcel(pointages, chantiers)} variant="secondary">📊 Export Excel</Btn>
+                <Btn small onClick={()=>setShowManuel(true)} variant="secondary">✏️ Manuel</Btn>
+                <Btn small onClick={()=>{if(window.confirm("Supprimer les pointages d'aujourd'hui ?"))onClearToday();}} variant="danger">🗑️ Aujourd'hui</Btn>
+                <Btn small onClick={()=>{if(window.confirm("⚠️ ATTENTION : supprimer TOUS les pointages ?\nCette action est irréversible."))onClearAll();}} variant="danger">🗑️ Tout</Btn>
+              </div>
+            </div>
+
+            {/* Filtres */}
+            <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
+              <select value={filterChantier} onChange={e=>setFilterChantier(e.target.value)} style={{maxWidth:200}}>
+                <option value="all">Tous les chantiers</option>
+                {chantiers.map(c=><option key={c.id} value={c.id}>{c.nom}</option>)}
+              </select>
+              <input type="date" value={filterDate} onChange={e=>setFilterDate(e.target.value)} style={{maxWidth:180}}/>
+              {filterDate&&<Btn small onClick={()=>setFilterDate("")} variant="ghost">✕ Réinitialiser</Btn>}
+              <div style={{marginLeft:"auto"}}><Tag color="#FF5A1F">{filteredPointages.length} entrée{filteredPointages.length>1?"s":""}</Tag></div>
+            </div>
+
+            {filteredPointages.length===0
+              ?<div style={{textAlign:"center",padding:"60px 20px"}} className="card"><div style={{color:"#555"}}>Aucun pointage {filterDate||filterChantier!=="all"?"pour ces critères":"pour l'instant"}</div></div>
+              :<div className="card" style={{overflow:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",minWidth:580}}>
+                  <thead><tr style={{background:"#0B0C14"}}>{["Date","Heure","Type","Salarié","Chantier","GPS",""].map(h=><th key={h} style={{padding:"11px 14px",textAlign:"left",color:"#444",fontSize:10,fontWeight:700,letterSpacing:1.2,borderBottom:"1px solid #1C1F35",textTransform:"uppercase"}}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {filteredPointages.map((p,i)=>{const ch=chantiers.find(c=>c.id===p.chantierId);const isSortie=p.type==="sortie";return(
+                      <tr key={p.id} style={{borderBottom:"1px solid #16172022",background:i%2?"#0a0b12":"transparent"}}>
+                        <td style={{padding:"10px 14px",color:"#666",fontSize:13}}>{fmt(p.timestamp,"date")}</td>
+                        <td style={{padding:"10px 14px",fontWeight:700}}>{fmt(p.timestamp)}</td>
+                        <td style={{padding:"10px 14px"}}><Tag color={isSortie?"#45aaf2":"#26de81"}>{isSortie?"🔵 Départ":"🟢 Arrivée"}</Tag></td>
+                        <td style={{padding:"10px 14px",fontWeight:600}}>{p.prenom} {p.nom}</td>
+                        <td style={{padding:"10px 14px"}}><span style={{width:8,height:8,borderRadius:"50%",background:ch?.couleur||"#666",display:"inline-block",marginRight:7}}/><span style={{fontSize:13}}>{p.chantierNom}</span></td>
+                        <td style={{padding:"10px 14px"}}>{p.manuel?<Tag color="#F7B731">Manuel</Tag>:<Tag color={p.distance<100?"#26de81":"#F7B731"}>{p.distance}m</Tag>}</td>
+                        <td style={{padding:"10px 14px"}}><Btn small onClick={()=>{if(window.confirm("Supprimer ?"))onDeletePointage(p.id);}} variant="danger">🗑️</Btn></td>
+                      </tr>
+                    );})}
+                  </tbody>
+                </table>
+              </div>
+            }
+          </div>
+        )}
+      </div>
+
+      {showQR&&<QRModal chantier={showQR} onClose={()=>setShowQR(null)} onChangeQR={id=>{onChangeQR(id);}}/>}
+      {showPresence&&<PresenceModal chantier={showPresence} pointages={pointages} onClose={()=>setShowPresence(null)} onPurgeSalarie={onPurgeSalarie}/>}
+      {showAdd&&<ChantierForm initial={null} onSave={d=>{onSaveChantier(d);setShowAdd(false);}} onClose={()=>setShowAdd(false)}/>}
+      {editItem&&<ChantierForm initial={editItem} onSave={d=>{onSaveChantier(d);setEditItem(null);}} onClose={()=>setEditItem(null)}/>}
+      {showManuel&&<SaisieManuelleModal chantiers={chantiers} onSave={p=>{onAddManuel(p);setShowManuel(false);}} onClose={()=>setShowManuel(false)}/>}
+    </div>
+  );
+}
+
+// ─── LOGIN (SHA-256) ─────────────────────────────────────────────────────────
+function AccesPage({onLogin}) {
+  const [pw,setPw]=useState("");
+  const [err,setErr]=useState("");
+  const [loading,setLoading]=useState(false);
+  async function go(){
+    setLoading(true);setErr("");
+    await new Promise(r=>setTimeout(r,400));
+    const hash = await sha256(pw);
+    if(hash === _HASH){
+      saveLocal("vonerlec:session","ok");
+      onLogin();
+    } else {
+      setErr("Mot de passe incorrect");
+      setLoading(false);
+    }
+  }
+  return (
+    <div style={{minHeight:"100vh",background:"#0B0C14",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <style>{css}</style>
+      <div className="anim" style={{textAlign:"center",maxWidth:360,width:"100%"}}>
+        <div style={{fontSize:60,marginBottom:6}}>🏗️</div>
+        <div style={{fontFamily:"'Bebas Neue'",fontSize:48,color:"#FF5A1F",letterSpacing:4,lineHeight:1}}>VONERLEC</div>
+        <div style={{color:"#444",marginBottom:34,fontSize:12,letterSpacing:2,fontWeight:500}}>GESTION DE CHANTIER</div>
+        <div style={{background:"#12131E",borderRadius:16,padding:28,border:"1px solid #1C1F35"}}>
+          <label style={{color:"#555",fontSize:11,letterSpacing:1,display:"block",textAlign:"left",marginBottom:8,fontWeight:600}}>CODE D'ACCÈS</label>
+          <input type="password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&go()} placeholder="••••••••" autoFocus style={{marginBottom:10,letterSpacing:4}}/>
+          {err&&<div style={{color:"#fc5c65",fontSize:13,marginBottom:10,textAlign:"left"}}>⚠️ {err}</div>}
+          <button onClick={go} disabled={loading||!pw} style={{width:"100%",padding:14,borderRadius:10,border:"none",background:loading||!pw?"#1C1F35":"linear-gradient(135deg,#FF5A1F,#FF7A45)",color:loading||!pw?"#444":"#fff",fontWeight:700,fontSize:15,cursor:loading||!pw?"not-allowed":"pointer",marginTop:4,boxShadow:loading||!pw?"none":"0 4px 20px rgba(255,90,31,.3)"}}>
+            {loading?"...":"ACCÉDER →"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ROOT ─────────────────────────────────────────────────────────────────────
+function App() {
+  const [view,setView]=useState("loading");
+  const [chantiers,setChantiers]=useState([]);
+  const [pointages,setPointages]=useState([]);
+  const [nextId,setNextId]=useState(100);
+  const [badgeChantier,setBadgeChantier]=useState(null);
+
+  async function loadAll(){
+    const rawC=await fbGet("chantiers");
+    const c=rawC?Object.values(rawC):[];
+    setChantiers(c);
+    if(c.length>0){const maxId=Math.max(...c.map(x=>x.id||0));setNextId(maxId+1);}
+    const raw=await fbGet("pointages");
+    const p=raw?Object.values(raw).sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp)):[];
+    setPointages(p);return{c,p};
+  }
+
+  useEffect(()=>{
+    const chantierFromQR=decodeQRData(window.location.hash);
+    if(chantierFromQR){setBadgeChantier(chantierFromQR);setView("badge");return;}
+    const session=loadLocal("vonerlec:session");
+    if(session==="ok"){loadAll().then(()=>setView("admin"));}
+    else{loadAll().then(()=>setView("login"));}
+  },[]);
+
+  const persistC=async l=>{setChantiers(l);await fbSet("chantiers",l.reduce((acc,c)=>{acc[c.id]=c;return acc;},{}));};
+  const persistP=async l=>{setPointages(l);await fbSet("pointages",l.reduce((acc,p,i)=>{acc[p.id||i]=p;return acc;},{}));};
+
+  function handleSaveChantier(d){
+    let l;
+    if(d.id){l=chantiers.map(c=>c.id===d.id?{...d,qrVersion:c.qrVersion||1,qrChangedAt:c.qrChangedAt}:c);}
+    else{const newId=chantiers.length>0?Math.max(...chantiers.map(x=>x.id||0))+1:100;l=[...chantiers,{...d,id:newId,qrVersion:1,qrChangedAt:new Date().toISOString()}];setNextId(newId+1);}
+    persistC(l);
+  }
+  function handleChangeQR(chantierId){persistC(chantiers.map(c=>c.id===chantierId?{...c,qrVersion:(c.qrVersion||1)+1,qrChangedAt:new Date().toISOString()}:c));}
+  async function handleAddManuel(p){const updated=[p,...pointages].sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));await persistP(updated);}
+  async function handleClearAll(){await fbDelete("pointages");setPointages([]);}
+  async function handleClearToday(){
+    const today=new Date().toDateString();
+    const kept=pointages.filter(p=>new Date(p.timestamp).toDateString()!==today);
+    await persistP(kept);
+  }
+  async function handlePurgeSalarie(chantierId, nom, prenom) {
+    const today = new Date().toDateString();
+    const kept = pointages.filter(p => {
+      if(new Date(p.timestamp).toDateString() !== today) return true;
+      if(p.chantierId === chantierId && p.nom === nom && p.prenom === prenom) return false;
+      return true;
+    });
+    await persistP(kept);
+  }
+
+  if(view==="loading") return <div style={{minHeight:"100vh",background:"#0B0C14",display:"flex",alignItems:"center",justifyContent:"center"}}><style>{css}</style><div style={{fontFamily:"'Bebas Neue'",fontSize:28,color:"#FF5A1F",letterSpacing:4,animation:"pulse 1.5s infinite"}}>VONERLEC...</div></div>;
+  if(view==="badge") return <BadgePage chantier={badgeChantier}/>;
+  if(view==="login") return <AccesPage onLogin={()=>{loadAll();setView("admin");}}/>;
+
+  return <AdminApp
+    chantiers={chantiers} pointages={pointages}
+    onSaveChantier={handleSaveChantier}
+    onDeleteChantier={async id=>{const u=chantiers.filter(c=>c.id!==id);await persistC(u);}}
+    onDeletePointage={async id=>{const u=pointages.filter(p=>p.id!==id);await persistP(u);}}
+    onChangeQR={handleChangeQR}
+    onLogout={()=>{saveLocal("vonerlec:session",null);setView("login");}}
+    onRefresh={loadAll}
+    onAddManuel={handleAddManuel}
+    onClearAll={handleClearAll}
+    onClearToday={handleClearToday}
+    onPurgeSalarie={handlePurgeSalarie}
+  />;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
