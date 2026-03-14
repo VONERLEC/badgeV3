@@ -1,0 +1,1551 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Vonerlec — Pointage BTP</title>
+  <meta name="theme-color" content="#FF5A1F" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="manifest" href="data:application/json;base64,eyJuYW1lIjoiVm9uZXJsZWMgUG9pbnRhZ2UiLCJzaG9ydF9uYW1lIjoiVm9uZXJsZWMiLCJzdGFydF91cmwiOiIuIiwiZGlzcGxheSI6InN0YW5kYWxvbmUiLCJiYWNrZ3JvdW5kX2NvbG9yIjoiIzBCMEMxNCIsInRoZW1lX2NvbG9yIjoiI0ZGNUExRiJ9" />
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}html,body{height:100%}
+    body{background:#0B0C14;font-family:'DM Sans',sans-serif;color:#f0f0f0}
+    #root{min-height:100%}
+  </style>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const{useState,useEffect,useRef,useMemo,useCallback}=React;
+
+// ─── CONFIG ──────────────────────────────────────────────────────────────────
+const _HASH="f442628c0a3a9b3131c40fdad54356300b0ff1b81dfea7b3531670c9d1ffa4fa";
+const SECRET="VONERLEC_SECRET_2026";
+const COULEURS=["#FF5A1F","#4ECDC4","#F7B731","#7C5CBF","#26de81","#FC5C65","#45AAF2","#FD9644"];
+const FIREBASE_URL="https://vonerlec-badge-default-rtdb.europe-west1.firebasedatabase.app";
+
+// ─── FIREBASE AUTH (supprimé — accès direct via règles ouvertes) ─────────────
+// L'app gère sa propre authentification admin via SHA-256
+// Les règles Firebase autorisent la lecture/écriture directement
+
+const EPI_ITEMS=[
+  {id:"casque",label:"Casque",icon:"🪖"},
+  {id:"gants",label:"Paire de gants",icon:"🧤"},
+  {id:"lunettes",label:"Lunettes",icon:"🥽"},
+  {id:"bouchons",label:"Bouchons d'oreilles",icon:"🔇"},
+  {id:"chaussures",label:"Chaussures de sécurité",icon:"👢"},
+  {id:"gilet",label:"Gilet fluo",icon:"🦺"},
+  {id:"jokari",label:"Jokari",icon:"⚡"},
+  {id:"pince",label:"Pince coupante",icon:"🔧"},
+  {id:"tournevis",label:"Tournevis plat",icon:"🪛"}
+];
+
+const DEFAULT_SALARIES=[
+  {code:"FAR01G",nom:"AHMAD",prenom:"Fayaz",actif:true},
+  {code:"AWA01R",nom:"AHMADZAI",prenom:"Abdul Wali",actif:true},
+  {code:"NAK01V",nom:"AHMADZAI",prenom:"Nasrullah",actif:true},
+  {code:"QAP01M",nom:"AHMADZAI",prenom:"Qudratullah",actif:true},
+  {code:"BAL01J",nom:"AHMADZAI",prenom:"Bakhtiar",actif:true},
+  {code:"MNA01P",nom:"AHMADZAI KOCHI",prenom:"Mohammad Noor",actif:true},
+  {code:"YAT01D",nom:"AMIR",prenom:"Yaqoob",actif:true},
+  {code:"MAH01W",nom:"AZAM",prenom:"Mariam",actif:true},
+  {code:"AAF01K",nom:"AZAM",prenom:"Arslan",actif:true},
+  {code:"FRH01B",nom:"HAQYAR",prenom:"Fazal Rahman",actif:true},
+  {code:"SHD01N",nom:"HASSAN",prenom:"Saad",actif:true},
+  {code:"MAK01T",nom:"KHAN",prenom:"Muhammad Azhar",actif:true},
+  {code:"NKW01E",nom:"KHAN",prenom:"Nematullah",actif:true},
+  {code:"SSK01H",nom:"KHAN",prenom:"Saad Sarfraz",actif:true},
+  {code:"JSM01X",nom:"MOHAMMAD",prenom:"Jamil Sarwar",actif:true},
+  {code:"UMB01C",nom:"MOHAMMAD",prenom:"Usman",actif:true},
+  {code:"HMR01L",nom:"MOMAND",prenom:"Himmatgul",actif:true},
+  {code:"KNV01F",nom:"NAWAZ",prenom:"Kamil",actif:true},
+  {code:"SSG01Z",nom:"SARWAR",prenom:"Sumbal",actif:true},
+  {code:"ASJ01Q",nom:"SARWAR",prenom:"Aqeel",actif:true},
+  {code:"NSP01Y",nom:"SARWAR",prenom:"Nabeel",actif:true},
+  {code:"ASZ01U",nom:"SHAH ZAIB",prenom:"Akhtar",actif:true},
+  {code:"QTL01S",nom:"TABASSUM",prenom:"Qasim",actif:true},
+  {code:"TTN01A",nom:"TARIQ",prenom:"Talha",actif:true},
+  {code:"IYK01P",nom:"YUSUFZAI",prenom:"Imran",actif:true},
+  {code:"MSI01V",nom:"ISMAILKHAIL",prenom:"Mohammad Shakil",actif:true},
+  {code:"AKZ01H",nom:"ZADRAN",prenom:"Azeem Khan",actif:true},
+  {code:"ZZH01J",nom:"ZADRAN",prenom:"Zahidullah",actif:true}
+];
+
+// Firebase Realtime DB free tier = 1 Go stockage
+const FIREBASE_MAX_BYTES=1*1024*1024*1024;
+async function estimerStockage(){
+  try{
+    const full=await fetch(`${FIREBASE_URL}/.json?shallow=true`);
+    const fullText=await full.text();
+    return new Blob([fullText]).size*20;
+  }catch{return 0}
+}
+
+// ─── UTILS ───────────────────────────────────────────────────────────────────
+async function sha256(t){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('')}
+
+function authParam(){return ""}
+
+async function fbGet(p){try{const r=await fetch(`${FIREBASE_URL}/${p}.json${authParam()}`);return await r.json()}catch{return null}}
+async function fbSet(p,v){try{const r=await fetch(`${FIREBASE_URL}/${p}.json${authParam()}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(v)});return r.ok}catch{return false}}
+async function fbPush(p,v){try{const r=await fetch(`${FIREBASE_URL}/${p}.json${authParam()}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(v)});return await r.json()}catch{return null}}
+async function fbDelete(p){try{const r=await fetch(`${FIREBASE_URL}/${p}.json${authParam()}`,{method:"DELETE"});return r.ok}catch{return false}}
+
+function loadLocal(k){try{const v=localStorage.getItem(k);return v?JSON.parse(v):null}catch{return null}}
+function saveLocal(k,v){try{if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,JSON.stringify(v))}catch{}}
+
+function getDeviceId(){let id=localStorage.getItem("vonerlec:deviceId");if(!id){id="dev_"+Date.now().toString(36)+Math.random().toString(36).slice(2,8);localStorage.setItem("vonerlec:deviceId",id)}return id}
+function todayKey(){return new Date().toISOString().slice(0,10).replace(/-/g,"")}
+
+// ─── SESSIONS FIREBASE (ANTI-TRICHE SERVEUR) ────────────────────────────────
+// Une session = un enregistrement par code+chantier+date dans Firebase
+// Contient le deviceId du téléphone qui a badgé l'arrivée → seul ce device peut badger la sortie
+async function getSession(code,chantierId){
+  const key=`${code}_${chantierId}_${todayKey()}`;
+  return await fbGet(`sessions/${key}`);
+}
+async function createSession(code,chantierId,deviceId){
+  const key=`${code}_${chantierId}_${todayKey()}`;
+  const fp=getDeviceFingerprint();
+  await fbSet(`sessions/${key}`,{code,chantierId,deviceId,fingerprint:fp,entreeAt:new Date().toISOString(),sortieAt:null,date:todayKey()});
+}
+async function closeSession(code,chantierId){
+  const key=`${code}_${chantierId}_${todayKey()}`;
+  const sess=await fbGet(`sessions/${key}`);
+  if(sess){await fbSet(`sessions/${key}`,{...sess,sortieAt:new Date().toISOString()})}
+}
+async function deleteSession(code,chantierId){
+  const key=`${code}_${chantierId}_${todayKey()}`;
+  await fbDelete(`sessions/${key}`);
+}
+// Vérification complète côté serveur
+// Retourne : { ok, etat, error }
+//   etat: null | "entree" | "les_deux"
+//   error: message si bloqué
+async function verifierSession(code,chantierId,type){
+  const sess=await getSession(code,chantierId);
+  const deviceId=getDeviceId();
+  if(!sess){
+    // Pas de session → seule l'arrivée est possible
+    if(type==="sortie") return {ok:false,etat:null,error:"⛔ Vous n'avez pas encore pointé l'arrivée aujourd'hui."};
+    return {ok:true,etat:null,error:null};
+  }
+  // Session existe
+  if(sess.entreeAt&&sess.sortieAt){
+    // Journée complète
+    return {ok:false,etat:"les_deux",error:"✅ Journée déjà complète (arrivée + départ)."};
+  }
+  if(sess.entreeAt&&!sess.sortieAt){
+    // Arrivée faite, pas encore de sortie
+    if(type==="entree") return {ok:false,etat:"entree",error:"⛔ Arrivée déjà enregistrée aujourd'hui."};
+    // Sortie demandée → vérifier que c'est le même téléphone ET le même fingerprint
+    if(sess.deviceId!==deviceId) return {ok:false,etat:"entree",error:"⛔ Le départ doit être badgé depuis le même téléphone que l'arrivée.\n\nUtilisez le téléphone avec lequel vous avez pointé ce matin."};
+    // Double vérification fingerprint (user agent, écran, etc.)
+    const fp=getDeviceFingerprint();
+    if(sess.fingerprint&&sess.fingerprint!==fp) return {ok:false,etat:"entree",error:"⛔ Appareil non reconnu. Le départ doit être fait depuis le même navigateur que l'arrivée."};
+    return {ok:true,etat:"entree",error:null};
+  }
+  return {ok:true,etat:null,error:null};
+}
+
+function haversineDistance(lat1,lon1,lat2,lon2){const R=6371000,dLat=(lat2-lat1)*Math.PI/180,dLon=(lon2-lon1)*Math.PI/180;const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))}
+function generateToken(id,v){const s=`${id}::v${v}::${SECRET}`;let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return Math.abs(h>>>0).toString(36).toUpperCase().padStart(8,"0")}
+function fmt(ts,mode="time"){const d=new Date(ts);if(mode==="time")return d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});if(mode==="date")return d.toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"2-digit"});if(mode==="dateFull")return d.toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"numeric"});return d.toLocaleString("fr-FR")}
+function encodeQRData(ch){const v=ch.qrVersion||1,t=generateToken(ch.id,v);return btoa(unescape(encodeURIComponent(JSON.stringify({i:ch.id,t,v}))))}
+function decodeQRData(hash){try{if(!hash.startsWith("#badge/"))return null;const d=JSON.parse(decodeURIComponent(escape(atob(hash.replace("#badge/","")))));if(d.t!==generateToken(d.i,d.v))return null;return{id:d.i,qrVersion:d.v}}catch{return null}}
+// Charger les vraies données du chantier depuis Firebase (jamais exposées dans le QR)
+async function loadChantierFromFirebase(chantierId){
+  const raw=await fbGet("chantiers");
+  if(!raw)return null;
+  const all=Object.values(raw);
+  return all.find(c=>c.id===chantierId)||null;
+}
+
+// ─── ANTI BRUTE-FORCE ────────────────────────────────────────────────────────
+function getBruteForceKey(){return"vonerlec:bf_"+todayKey()}
+function checkBruteForce(){
+  try{
+    const data=JSON.parse(localStorage.getItem(getBruteForceKey())||"{}");
+    const now=Date.now();
+    // Nettoyer les tentatives > 15 min
+    const recent=Object.entries(data).filter(([ts])=>now-parseInt(ts)<900000);
+    return{count:recent.length,blocked:recent.length>=5};
+  }catch{return{count:0,blocked:false}}
+}
+function recordBruteForceAttempt(){
+  try{
+    const data=JSON.parse(localStorage.getItem(getBruteForceKey())||"{}");
+    data[Date.now()]=1;
+    localStorage.setItem(getBruteForceKey(),JSON.stringify(data));
+  }catch{}
+}
+
+// ─── ADMIN LOG ───────────────────────────────────────────────────────────────
+async function logAdminAction(action,details){
+  await fbPush("adminLogs",{action,details,timestamp:new Date().toISOString()});
+}
+
+// ─── GPS AMÉLIORÉ + ANTI-SPOOFING ───────────────────────────────────────────
+function getAccuratePosition(timeout=15000){
+  return new Promise((resolve,reject)=>{
+    if(!navigator.geolocation){reject(new Error("GPS non disponible"));return}
+    let best=null;let readings=[];let startTime=Date.now();
+    const wid=navigator.geolocation.watchPosition(pos=>{
+      const elapsed=Date.now()-startTime;
+      readings.push({lat:pos.coords.latitude,lon:pos.coords.longitude,acc:pos.coords.accuracy,t:elapsed});
+      if(!best||pos.coords.accuracy<best.coords.accuracy)best=pos;
+      if(pos.coords.accuracy<25&&elapsed>1500){navigator.geolocation.clearWatch(wid);resolve({position:best,readings})}
+    },err=>{navigator.geolocation.clearWatch(wid);if(best)resolve({position:best,readings});else reject(err)},{enableHighAccuracy:true,timeout,maximumAge:0});
+    setTimeout(()=>{navigator.geolocation.clearWatch(wid);if(best)resolve({position:best,readings});else reject(new Error("GPS timeout"))},timeout);
+  });
+}
+
+// Détecte les signes de GPS falsifié
+function detectGpsSpoofing(readings,accuracy){
+  const flags=[];
+  // 1. GPS trop rapide (< 800ms pour un fix) → suspect (le vrai GPS prend du temps)
+  if(readings.length>0&&readings[0].t<800) flags.push("fix_instantane");
+  // 2. Précision suspecte : exactement 0, ou < 3m en extérieur mobile → rare
+  if(accuracy<=3) flags.push("precision_suspecte");
+  if(accuracy===0) flags.push("precision_zero");
+  // 3. Toutes les lectures identiques au millième → fake GPS renvoie une position fixe
+  if(readings.length>=3){
+    const allSame=readings.every(r=>r.lat===readings[0].lat&&r.lon===readings[0].lon);
+    if(allSame) flags.push("position_statique_parfaite");
+  }
+  // 4. Accuracy ne varie jamais entre les lectures → suspect
+  if(readings.length>=3){
+    const allSameAcc=readings.every(r=>r.acc===readings[0].acc);
+    if(allSameAcc&&readings[0].acc<50) flags.push("precision_constante");
+  }
+  return flags;
+}
+
+// ─── COMPRESSION PHOTO + ANTI-FRAUDE ─────────────────────────────────────────
+function compressPhoto(file,maxW=480,quality=0.45){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=e=>{const img=new Image();img.onload=()=>{const c=document.createElement('canvas');const ratio=Math.min(maxW/img.width,maxW/img.height,1);c.width=img.width*ratio;c.height=img.height*ratio;const ctx=c.getContext('2d');ctx.drawImage(img,0,0,c.width,c.height);resolve(c.toDataURL('image/jpeg',quality))};img.onerror=reject;img.src=e.target.result};
+    reader.onerror=reject;reader.readAsDataURL(file);
+  });
+}
+
+// Vérifie que la photo vient bien de la caméra et pas d'une capture d'écran / galerie
+function validatePhoto(file){
+  const errors=[];
+  // 1. Vérifier le type MIME
+  if(!file.type.startsWith("image/")){errors.push("Le fichier n'est pas une image");return{ok:false,errors}}
+  // 2. Taille minimale — une vraie photo caméra fait > 50 Ko, un screenshot peut être très léger
+  if(file.size<30000) errors.push("Photo trop légère — utilisez la caméra, pas une capture d'écran");
+  // 3. Taille maximale raisonnable  
+  if(file.size>20000000) errors.push("Fichier trop volumineux");
+  // 4. Vérifier que le nom de fichier ressemble à une photo caméra (pas "screenshot")
+  const name=file.name.toLowerCase();
+  if(name.includes("screenshot")||name.includes("capture")||name.includes("screen")) errors.push("Les captures d'écran ne sont pas acceptées — utilisez la caméra");
+  // 5. Vérifier la date de dernière modification (doit être récente < 2 min)
+  if(file.lastModified){
+    const age=Date.now()-file.lastModified;
+    if(age>120000) errors.push("Cette photo semble ancienne — prenez une photo maintenant");
+  }
+  return {ok:errors.length===0,errors};
+}
+
+// ─── DEVICE FINGERPRINT RENFORCÉ ─────────────────────────────────────────────
+function getDeviceFingerprint(){
+  const parts=[
+    navigator.userAgent,
+    screen.width+"x"+screen.height,
+    screen.colorDepth,
+    Intl.DateTimeFormat().resolvedOptions().timeZone,
+    navigator.language,
+    navigator.hardwareConcurrency||"?"
+  ];
+  // Hash simple du fingerprint
+  let h=0;const s=parts.join("|");
+  for(let i=0;i<s.length;i++){h=((h<<5)-h)+s.charCodeAt(i);h|=0}
+  return Math.abs(h).toString(36);
+}
+
+// ─── EPI LOGIC ───────────────────────────────────────────────────────────────
+function epiRequis(lastEpiDate,frequence){
+  if(!lastEpiDate)return true;
+  const diffDays=Math.floor((new Date()-new Date(lastEpiDate))/(86400000));
+  if(frequence==="jour")return diffDays>=1;
+  if(frequence==="semaine")return diffDays>=7;
+  if(frequence==="mois")return diffDays>=30;
+  return false;
+}
+function joursDepuisEpi(lastDate){
+  if(!lastDate)return 0; // Jamais fait → compteur à 0, pas 15
+  return Math.min(Math.floor((new Date()-new Date(lastDate))/86400000),15);
+}
+function joursRestantsEpi(lastDate,firstPointageDate){
+  // Si jamais fait d'EPI → le compteur démarre depuis le premier pointage
+  if(!lastDate){
+    if(!firstPointageDate)return 15; // Jamais pointé → 15 jours restants
+    const joursSinceFirst=Math.floor((new Date()-new Date(firstPointageDate))/86400000);
+    return Math.max(15-joursSinceFirst,0);
+  }
+  const jours=Math.floor((new Date()-new Date(lastDate))/86400000);
+  return Math.max(15-jours,0);
+}
+// Hard block : seulement si le salarié a pointé depuis plus de 15 jours sans EPI
+function isEpiOverdue(lastEpiDate,firstPointageDate){
+  if(lastEpiDate){
+    // A fait un EPI → bloqué si > 15 jours
+    return Math.floor((new Date()-new Date(lastEpiDate))/86400000)>=15;
+  }
+  // Jamais fait d'EPI → bloqué seulement si premier pointage > 15 jours
+  if(!firstPointageDate)return false; // Jamais pointé → pas bloqué
+  return Math.floor((new Date()-new Date(firstPointageDate))/86400000)>=15;
+}
+// Trouver les EPI manquants (pas de photo)
+function getEpiManquants(epiRecord){
+  if(!epiRecord||!epiRecord.photos)return EPI_ITEMS.map(e=>e.id);
+  return EPI_ITEMS.filter(item=>{
+    const p=epiRecord.photos[item.id];
+    return !p||!p.data;
+  }).map(e=>e.id);
+}
+function getEpiNonValides(epiRecord){
+  if(!epiRecord||!epiRecord.validations)return EPI_ITEMS.map(e=>e.id);
+  return EPI_ITEMS.filter(item=>!epiRecord.validations[item.id]).map(e=>e.id);
+}
+
+// ─── EXCEL EXPORT ────────────────────────────────────────────────────────────
+function exporterExcel(pointages,chantiers,salaries){
+  const grouped={};
+  pointages.forEach(p=>{
+    const sal=salaries.find(s=>s.code===p.code)||{nom:p.nom||"?",prenom:p.prenom||"?"};
+    const dateStr=new Date(p.timestamp).toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"numeric"});
+    const key=`${p.code}__${dateStr}__${p.chantierId}`;
+    if(!grouped[key])grouped[key]={code:p.code,nom:sal.nom,prenom:sal.prenom,chantier:p.chantierNom,date:dateStr,entree:null,sortie:null,distE:null,distS:null,manE:false,manS:false};
+    if(p.type!=="sortie"&&!grouped[key].entree){grouped[key].entree=fmt(p.timestamp);grouped[key].distE=p.distance;grouped[key].manE=!!p.manuel}
+    if(p.type==="sortie"&&!grouped[key].sortie){grouped[key].sortie=fmt(p.timestamp);grouped[key].distS=p.distance;grouped[key].manS=!!p.manuel}
+  });
+  const lignes=Object.values(grouped).map(g=>{
+    let duree="";
+    if(g.entree&&g.sortie){try{const[he,me]=g.entree.split(":");const[hs,ms]=g.sortie.split(":");const dm=(parseInt(hs)*60+parseInt(ms))-(parseInt(he)*60+parseInt(me));if(dm>0)duree=`${Math.floor(dm/60)}h${(dm%60).toString().padStart(2,"0")}`}catch{}}
+    return{"Date":g.date,"Code":g.code,"Nom":g.nom,"Prénom":g.prenom,"Chantier":g.chantier,"Arrivée":g.entree||"—","Départ":g.sortie||"—","Durée":duree||"—","GPS Arr.(m)":g.distE!=null?g.distE:"—","GPS Dép.(m)":g.distS!=null?g.distS:"—","Manuel":(g.manE||g.manS)?"Oui":"Non"}
+  });
+  lignes.sort((a,b)=>{const[da,ma,ya]=a["Date"].split("/");const[db,mb,yb]=b["Date"].split("/");const dA=new Date(`${ya}-${ma}-${da}`),dB=new Date(`${yb}-${mb}-${db}`);return dB-dA||a["Nom"].localeCompare(b["Nom"])});
+  const ws=XLSX.utils.json_to_sheet(lignes);ws["!cols"]=[{wch:12},{wch:8},{wch:16},{wch:14},{wch:22},{wch:8},{wch:8},{wch:8},{wch:12},{wch:12},{wch:8}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Pointages");
+  // Résumé
+  const rMap={};lignes.forEach(l=>{const k=l["Code"];if(!rMap[k])rMap[k]={"Code":l["Code"],"Nom":l["Nom"],"Prénom":l["Prénom"],jours:0,totalMin:0};rMap[k].jours++;if(l["Durée"]!=="—"){const m=l["Durée"].match(/(\d+)h(\d+)/);if(m)rMap[k].totalMin+=parseInt(m[1])*60+parseInt(m[2])}});
+  const resume=Object.values(rMap).map(r=>({"Code":r["Code"],"Nom":r["Nom"],"Prénom":r["Prénom"],"Jours pointés":r.jours,"Heures totales":r.totalMin>0?`${Math.floor(r.totalMin/60)}h${(r.totalMin%60).toString().padStart(2,"0")}`:"—"}));
+  const ws2=XLSX.utils.json_to_sheet(resume);ws2["!cols"]=[{wch:8},{wch:16},{wch:14},{wch:14},{wch:16}];
+  XLSX.utils.book_append_sheet(wb,ws2,"Résumé salariés");
+  XLSX.writeFile(wb,`Vonerlec_Rapport_${new Date().toLocaleDateString("fr-FR").replace(/\//g,"-")}.xlsx`);
+}
+
+// ─── CSS ─────────────────────────────────────────────────────────────────────
+const css=`
+  ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#FF5A1F;border-radius:2px}
+  input,select{outline:none;background:#151724;border:1.5px solid #252840;color:#f0f0f0;border-radius:10px;padding:11px 14px;font-family:'DM Sans',sans-serif;font-size:14px;width:100%;transition:border-color .2s}
+  input:focus,select:focus{border-color:#FF5A1F;box-shadow:0 0 0 3px rgba(255,90,31,.1)}input::placeholder{color:#3a3d55}
+  button{cursor:pointer;font-family:'DM Sans',sans-serif}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes pop{0%{transform:scale(.85);opacity:0}65%{transform:scale(1.04)}100%{transform:scale(1);opacity:1}}
+  @keyframes slideDown{from{opacity:0;transform:translate(-50%,-20px)}to{opacity:1;transform:translate(-50%,0)}}
+  @keyframes ping{0%{transform:scale(1);opacity:1}75%,100%{transform:scale(2.2);opacity:0}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+  .anim{animation:fadeIn .35s ease forwards}.pop{animation:pop .45s ease forwards}
+  .card{background:#12131E;border-radius:14px;border:1px solid #1C1F35}
+`;
+
+// ─── COMPOSANTS BASE ─────────────────────────────────────────────────────────
+function Btn({children,onClick,variant="primary",disabled,small,full,style:s}){
+  const base={display:"inline-flex",alignItems:"center",gap:8,justifyContent:"center",borderRadius:10,fontWeight:600,border:"none",cursor:disabled?"not-allowed":"pointer",opacity:disabled?.5:1,transition:"all .15s",padding:small?"8px 14px":"12px 22px",fontSize:small?12:14,width:full?"100%":undefined,...s};
+  const v={primary:{background:"linear-gradient(135deg,#FF5A1F,#FF7A45)",color:"#fff",boxShadow:"0 2px 12px rgba(255,90,31,.25)"},secondary:{background:"#1C1F35",color:"#bbb",border:"1.5px solid #252840"},danger:{background:"#2a1218",color:"#fc5c65",border:"1.5px solid #fc5c6533"},success:{background:"#0f2a1f",color:"#26de81",border:"1.5px solid #26de8133"},ghost:{background:"transparent",color:"#666",border:"1.5px solid #252840"},warning:{background:"#2a2010",color:"#F7B731",border:"1.5px solid #F7B73133"}};
+  return <button style={{...base,...v[variant]}} onClick={disabled?undefined:onClick}>{children}</button>;
+}
+function Tag({color,children}){return <span style={{display:"inline-block",padding:"3px 10px",borderRadius:20,background:color+"18",color,fontSize:11,fontWeight:600,border:`1px solid ${color}33`,letterSpacing:.3}}>{children}</span>}
+function Modal({children,onClose,width=520}){
+  return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}} onClick={onClose}><div className="anim" style={{background:"#12131E",borderRadius:18,padding:28,width:"100%",maxWidth:width,border:"1px solid #252840",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 24px 80px rgba(0,0,0,.6)"}} onClick={e=>e.stopPropagation()}>{children}</div></div>);
+}
+function Toast({msg,sub,onClose}){
+  useEffect(()=>{const t=setTimeout(onClose,5000);return()=>clearTimeout(t)},[]);
+  return(<div onClick={onClose} style={{position:"fixed",top:16,left:"50%",zIndex:2000,background:"#0f2a1f",border:"1.5px solid #26de81",borderRadius:14,padding:"14px 20px",display:"flex",alignItems:"center",gap:14,minWidth:280,maxWidth:400,boxShadow:"0 12px 40px rgba(0,0,0,.6)",cursor:"pointer",animation:"slideDown .4s ease forwards"}}><div style={{position:"relative",flexShrink:0}}><div style={{width:10,height:10,borderRadius:"50%",background:"#26de81"}}/><div style={{position:"absolute",inset:0,borderRadius:"50%",background:"#26de81",animation:"ping 1.2s ease-out infinite"}}/></div><div><div style={{color:"#26de81",fontWeight:700,fontSize:14}}>{msg}</div>{sub&&<div style={{color:"#26de8188",fontSize:12,marginTop:2}}>{sub}</div>}</div><div style={{marginLeft:"auto",color:"#26de8144",fontSize:20}}>×</div></div>);
+}
+
+// ─── PAGE EPI (SALARIÉ) ──────────────────────────────────────────────────────
+function EpiCapturePage({salarie,chantierId,chantierNom,existingEpi,onComplete,onSkip}){
+  const[step,setStep]=useState(0);
+  const[photos,setPhotos]=useState({});
+  const[uploading,setUploading]=useState(false);
+  const fileRef=useRef();
+
+  // Déterminer quels items manquent
+  const manquants=existingEpi?getEpiManquants(existingEpi):EPI_ITEMS.map(e=>e.id);
+  const itemsToShow=manquants.length>0?EPI_ITEMS.filter(e=>manquants.includes(e.id)):EPI_ITEMS;
+  const current=itemsToShow[step];
+
+  async function handlePhoto(e){
+    const file=e.target.files?.[0];if(!file)return;
+    const check=validatePhoto(file);
+    if(!check.ok){alert("⛔ "+check.errors.join("\n"));fileRef.current.value="";return}
+    try{
+      const compressed=await compressPhoto(file);
+      const updated={...photos,[current.id]:{data:compressed,takenAt:new Date().toISOString(),size:file.size}};
+      setPhotos(updated);
+      if(step<itemsToShow.length-1)setTimeout(()=>setStep(step+1),400);
+    }catch{alert("Erreur lors de la compression")}
+  }
+
+  async function soumettre(){
+    setUploading(true);
+    // Fusionner avec les photos existantes (overwrite par item)
+    const existingPhotos=existingEpi?.photos||{};
+    const existingValidations=existingEpi?.validations||{};
+    const mergedPhotos={...existingPhotos};
+    const mergedValidations={...existingValidations};
+    Object.entries(photos).forEach(([k,v])=>{
+      mergedPhotos[k]={data:v.data,takenAt:v.takenAt,size:v.size};
+      mergedValidations[k]=false; // Nouvelle photo = revalider
+    });
+    await fbSet(`epi/${salarie.code}`,{
+      code:salarie.code,nom:salarie.nom,prenom:salarie.prenom,
+      chantierId,chantierNom,
+      lastUpdate:new Date().toISOString(),
+      photos:mergedPhotos,
+      validations:mergedValidations,
+      deviceFingerprint:getDeviceFingerprint()
+    });
+    setUploading(false);
+    onComplete();
+  }
+
+  const progress=Object.keys(photos).length;
+  const allDone=progress===itemsToShow.length;
+
+  return(
+    <div style={{minHeight:"100vh",background:"#0B0C14",padding:16,display:"flex",flexDirection:"column",alignItems:"center"}}>
+      <style>{css}</style>
+      <div style={{width:"100%",maxWidth:420}}>
+        <div style={{background:"linear-gradient(135deg,#F7B731,#FF5A1F)",padding:"18px 20px",borderRadius:"16px 16px 0 0"}}>
+          <div style={{fontSize:11,fontWeight:700,letterSpacing:2,color:"#fff",opacity:.8}}>CONTRÔLE EPI</div>
+          <div style={{fontFamily:"'Barlow Condensed'",fontSize:24,fontWeight:800,color:"#fff",marginTop:2}}>🛡️ Point Sécurité</div>
+          <div style={{fontSize:12,color:"#ffffff88",marginTop:4}}>{salarie.prenom} {salarie.nom} · {manquants.length} élément{manquants.length>1?"s":""} manquant{manquants.length>1?"s":""}</div>
+        </div>
+        <div style={{background:"#12131E",borderRadius:"0 0 16px 16px",padding:20,border:"1px solid #252840",borderTop:"none"}}>
+          <div style={{display:"flex",gap:3,marginBottom:20}}>
+            {itemsToShow.map((item,i)=>(
+              <div key={item.id} style={{flex:1,height:4,borderRadius:2,background:photos[item.id]?"#26de81":i===step?"#FF5A1F":"#252840",transition:"all .3s"}}/>
+            ))}
+          </div>
+          <div style={{color:"#666",fontSize:12,marginBottom:12,textAlign:"center"}}>{progress}/{itemsToShow.length} photos prises</div>
+
+          {!allDone&&current?(
+            <div className="anim" key={step}>
+              <div style={{textAlign:"center",marginBottom:16}}>
+                <div style={{fontSize:56,marginBottom:8}}>{current.icon}</div>
+                <div style={{fontFamily:"'Barlow Condensed'",fontSize:22,fontWeight:700}}>Photographiez : {current.label}</div>
+                <div style={{color:"#666",fontSize:13,marginTop:6}}>Prenez une photo nette de l'équipement</div>
+              </div>
+              {photos[current.id]?(
+                <div style={{textAlign:"center"}}>
+                  <img src={photos[current.id].data} alt={current.label} style={{width:"100%",maxWidth:280,borderRadius:12,border:"2px solid #26de81",marginBottom:12}}/>
+                  <div style={{color:"#26de81",fontWeight:600,fontSize:13,marginBottom:12}}>✅ Photo enregistrée</div>
+                  <div style={{display:"flex",gap:8}}>
+                    <Btn full variant="ghost" small onClick={()=>fileRef.current?.click()}>📷 Reprendre</Btn>
+                    {step<itemsToShow.length-1&&<Btn full small onClick={()=>setStep(step+1)}>Suivant →</Btn>}
+                  </div>
+                </div>
+              ):(
+                <button onClick={()=>fileRef.current?.click()} style={{width:"100%",padding:24,borderRadius:14,border:"2px dashed #FF5A1F44",background:"#FF5A1F08",color:"#FF5A1F",fontWeight:700,fontSize:16,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:8}}>
+                  📷 Prendre la photo
+                  <span style={{fontSize:12,fontWeight:400,color:"#666"}}>Appuyez pour ouvrir la caméra</span>
+                </button>
+              )}
+              <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{display:"none"}}/>
+              <div style={{display:"flex",gap:6,marginTop:16,flexWrap:"wrap",justifyContent:"center"}}>
+                {itemsToShow.map((item,i)=>(
+                  <button key={item.id} onClick={()=>setStep(i)} style={{width:36,height:36,borderRadius:10,border:`1.5px solid ${photos[item.id]?"#26de81":i===step?"#FF5A1F":"#252840"}`,background:photos[item.id]?"#26de8118":i===step?"#FF5A1F18":"transparent",fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}} title={item.label}>
+                    {photos[item.id]?"✅":item.icon}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ):(
+            <div className="pop" style={{textAlign:"center"}}>
+              <div style={{fontSize:60,marginBottom:8}}>🎉</div>
+              <div style={{fontFamily:"'Barlow Condensed'",fontSize:22,color:"#26de81",fontWeight:700}}>Photos prises !</div>
+              <div style={{color:"#666",fontSize:13,marginTop:6,marginBottom:18}}>Validez pour enregistrer</div>
+              <Btn full onClick={soumettre} disabled={uploading}>{uploading?"⏳ Envoi...":"✅ Enregistrer les photos"}</Btn>
+            </div>
+          )}
+          {onSkip&&<div style={{textAlign:"center",marginTop:16}}><button onClick={onSkip} style={{background:"none",border:"none",color:"#444",fontSize:12,cursor:"pointer",textDecoration:"underline"}}>Passer pour l'instant</button></div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── PAGE BADGE ──────────────────────────────────────────────────────────────
+function BadgePage({chantier,salaries,epiConfig}){
+  const[code,setCode]=useState("");
+  const[salarie,setSalarie]=useState(null);
+  const[codeLocked,setCodeLocked]=useState(false);
+  const[type,setType]=useState("entree");
+  const[etatJour,setEtatJour]=useState(null);
+  const[status,setStatus]=useState("loading");
+  const[gpsInfo,setGpsInfo]=useState("");
+  const[error,setError]=useState("");
+  const[result,setResult]=useState(null);
+  const[showEpi,setShowEpi]=useState(false);
+  const[epiData,setEpiData]=useState(null);
+  const[countdown,setCountdown]=useState(null);
+  const countdownRef=useRef(null); // Référence stable pour annuler l'intervalle
+  const pointageEnCours=useRef(false); // Anti double-clic
+
+  // Au chargement : vérifier si un code est mémorisé + vérifier la session serveur
+  useEffect(()=>{
+    async function init(){
+      const sc=loadLocal("vonerlec:code");
+      if(sc&&chantier){
+        const s=salaries.find(x=>x.code===sc);
+        if(s){
+          setSalarie(s);setCode(sc);
+          // Vérifier session serveur
+          const sess=await getSession(sc,chantier.id);
+          if(sess){
+            const deviceId=getDeviceId();
+            if(sess.entreeAt&&sess.sortieAt){
+              setEtatJour("les_deux");setCodeLocked(true);
+            }else if(sess.entreeAt){
+              // Arrivée faite → vérifier que c'est le bon device
+              if(sess.deviceId===deviceId){
+                setEtatJour("entree");setType("sortie");setCodeLocked(true);
+              }else{
+                // Pas le bon téléphone → ne pas charger ce code, forcer saisie
+                setSalarie(null);setCode("");setCodeLocked(false);
+                setError("⛔ Ce code est déjà utilisé sur un autre téléphone aujourd'hui.");
+              }
+            }
+          }
+        }
+      }
+      fbGet("epi").then(raw=>{if(raw)setEpiData(raw);else setEpiData({})});
+      setStatus("form");
+    }
+    init();
+  },[]);
+
+  async function validerCode(){
+    const c=code.trim().toUpperCase();
+    // Anti brute-force : max 5 tentatives par 15 min
+    const bf=checkBruteForce();
+    if(bf.blocked){setError("⛔ Trop de tentatives incorrectes. Réessayez dans 15 minutes.");return}
+    const s=salaries.find(x=>x.code===c);
+    if(!s){
+      recordBruteForceAttempt();
+      const remaining=4-bf.count;
+      setError(`❌ Code inconnu.${remaining>0?` ${remaining} tentative${remaining>1?"s":""} restante${remaining>1?"s":""}.`:""}`);
+      // Log la tentative échouée côté serveur
+      fbPush("alerts",{type:"code_inconnu",code:c,chantierId:chantier?.id,deviceId:getDeviceId(),timestamp:new Date().toISOString()});
+      return;
+    }
+    if(!s.actif){setError("⛔ Ce compte est désactivé.");return}
+    // Vérifier côté serveur si ce code a déjà une session active
+    if(chantier){
+      const sess=await getSession(c,chantier.id);
+      if(sess&&sess.entreeAt&&!sess.sortieAt){
+        if(sess.deviceId!==getDeviceId()){
+          setError("⛔ Ce code a déjà été utilisé sur un autre téléphone aujourd'hui.\n\nLe départ doit être badgé depuis le même téléphone que l'arrivée.");
+          return;
+        }
+        setType("sortie");setEtatJour("entree");setCodeLocked(true);
+      }else if(sess&&sess.entreeAt&&sess.sortieAt){
+        setEtatJour("les_deux");setCodeLocked(true);
+      }
+    }
+    setSalarie(s);saveLocal("vonerlec:code",c);setError("");
+  }
+
+  function getExistingEpi(){
+    if(!salarie||!epiData)return null;
+    return epiData[salarie.code]||null;
+  }
+
+  function checkEpiRequired(){
+    if(!epiConfig||!epiConfig.actif||!salarie)return false;
+    const existing=getExistingEpi();
+    const lastDate=existing?.lastUpdate;
+    return epiRequis(lastDate,epiConfig.frequence);
+  }
+
+  function isEpiHardBlocked(){
+    if(!epiConfig||!epiConfig.actif||!salarie)return false;
+    const existing=getExistingEpi();
+    const lastDate=existing?.lastUpdate;
+    // Utiliser firstSeen stocké dans l'EPI record, ou null
+    const firstSeen=existing?.firstSeen;
+    return isEpiOverdue(lastDate,firstSeen);
+  }
+
+  function getEpiAlertInfo(){
+    const existing=getExistingEpi();
+    const manquants=getEpiManquants(existing);
+    const nonValides=getEpiNonValides(existing);
+    const firstSeen=existing?.firstSeen;
+    const restants=joursRestantsEpi(existing?.lastUpdate,firstSeen);
+    return{manquants,nonValides,restants,hasPhotos:!!existing?.photos};
+  }
+
+  async function pointer(bypassEpi){
+    if(!salarie){setError("Entrez votre code");return}
+    if(pointageEnCours.current){return} // Anti double-clic
+    pointageEnCours.current=true;
+    setError("");
+    // Vérification serveur anti-triche
+    const verif=await verifierSession(salarie.code,chantier.id,type);
+    if(!verif.ok){
+      if(verif.etat)setEtatJour(verif.etat);
+      setError(verif.error);
+      return;
+    }
+    // Check EPI si arrivée — hard block à 15 jours (bypass si photos viennent d'être envoyées)
+    if(!bypassEpi&&type==="entree"&&checkEpiRequired()){
+      if(epiConfig.bloquer||isEpiHardBlocked()){setShowEpi(true);return}
+    }
+    setStatus("checking");setGpsInfo("Recherche GPS...");
+    try{
+      const gpsResult=await getAccuratePosition(15000);
+      const pos=gpsResult.position;
+      const readings=gpsResult.readings;
+      const acc=Math.round(pos.coords.accuracy);
+      setGpsInfo(`Précision : ${acc}m (${readings.length} lectures)`);
+      
+      // Détection GPS falsifié
+      const spoofFlags=detectGpsSpoofing(readings,acc);
+      const isSuspect=spoofFlags.length>=2; // 2+ flags = très suspect
+      
+      const dist=haversineDistance(pos.coords.latitude,pos.coords.longitude,chantier.lat,chantier.lon);
+      if(dist>chantier.rayon){setStatus("form");setError(`⛔ Vous êtes à ${Math.round(dist)}m du chantier (zone : ${chantier.rayon}m). Précision GPS : ${acc}m`);return}
+      
+      const p={id:Date.now(),chantierId:chantier.id,chantierNom:chantier.nom,code:salarie.code,nom:salarie.nom,prenom:salarie.prenom,type,timestamp:new Date().toISOString(),distance:Math.round(dist),accuracy:acc,gpsReadings:readings.length,spoofFlags:spoofFlags.length>0?spoofFlags:null,deviceFingerprint:getDeviceFingerprint()};
+      
+      // Si GPS très suspect → bloquer ou marquer
+      if(isSuspect){
+        setStatus("form");
+        setError("⛔ GPS suspect détecté.\n\nDésactivez toute application de localisation fictive et réessayez.\n\nSi le problème persiste, attendez quelques secondes à l'extérieur pour un meilleur signal GPS.");
+        // Log la tentative suspecte côté serveur
+        fbPush("alerts",{code:salarie.code,chantierId:chantier.id,chantierNom:chantier.nom,type:"gps_suspect",flags:spoofFlags,timestamp:new Date().toISOString(),distance:Math.round(dist),accuracy:acc});
+        return;
+      }
+      
+      // Enregistrer côté serveur
+      if(type==="entree"){
+        await createSession(salarie.code,chantier.id,getDeviceId());
+        setCodeLocked(true);
+      }else{
+        await closeSession(salarie.code,chantier.id);
+      }
+      await fbPush("pointages",p);
+      // Si premier pointage et pas d'EPI → créer un marqueur firstSeen pour le compteur 15 jours
+      if(type==="entree"&&epiConfig?.actif){
+        const existing=getExistingEpi();
+        if(!existing){
+          await fbSet(`epi/${salarie.code}`,{code:salarie.code,nom:salarie.nom,prenom:salarie.prenom,firstSeen:new Date().toISOString(),photos:{},validations:{}});
+          fbGet("epi").then(raw=>{if(raw)setEpiData(raw)});
+        }
+      }
+      setResult(p);setStatus("success");
+      setEtatJour(type==="entree"?"entree":"les_deux");
+      pointageEnCours.current=false;
+      // Compte à rebours annulable via ref
+      if(countdownRef.current)clearInterval(countdownRef.current);
+      let c=30;setCountdown(c);
+      countdownRef.current=setInterval(()=>{c--;setCountdown(c);if(c<=0){clearInterval(countdownRef.current);window.close();setTimeout(()=>window.location.replace("about:blank"),300);}},1000);
+      // Proposer EPI après badge si requis et non bloquant
+      if(type==="entree"&&epiConfig?.actif&&checkEpiRequired()&&!epiConfig.bloquer&&!isEpiHardBlocked()){
+        setTimeout(()=>setShowEpi(true),2000);
+      }
+    }catch(err){
+      setStatus("form");
+      pointageEnCours.current=false;
+      if(err?.code===1)setError("⛔ GPS refusé. Autorisez la localisation.\n\nAndroid : Paramètres → Chrome → Autorisations → Localisation\niOS : Réglages → Safari → Localisation");
+      else setError("GPS indisponible. Vérifiez que le GPS est activé et réessayez.");
+    }
+  }
+
+  if(showEpi&&salarie) return <EpiCapturePage salarie={salarie} chantierId={chantier.id} chantierNom={chantier.nom} existingEpi={getExistingEpi()} onComplete={()=>{setShowEpi(false);fbGet("epi").then(raw=>{if(raw)setEpiData(raw)});if(status!=="success")setTimeout(()=>pointer(true),300)}} onSkip={(epiConfig.bloquer||isEpiHardBlocked())?null:()=>setShowEpi(false)}/>;
+
+  if(!chantier)return(<div style={{minHeight:"100vh",background:"#0B0C14",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}><style>{css}</style><div style={{textAlign:"center",background:"#12131E",borderRadius:18,padding:32,border:"1px solid #fc5c6533",maxWidth:360}}><div style={{fontSize:60,marginBottom:12}}>❌</div><div style={{fontFamily:"'Barlow Condensed'",fontSize:22,color:"#fc5c65",marginBottom:12}}>QR Code invalide</div><div style={{color:"#666",fontSize:14,lineHeight:1.7}}>Ce QR a été désactivé.<br/><strong style={{color:"#aaa"}}>Demandez le nouveau QR à votre responsable.</strong></div></div></div>);
+
+  if(status==="loading")return(<div style={{minHeight:"100vh",background:"#0B0C14",display:"flex",alignItems:"center",justifyContent:"center"}}><style>{css}</style><div className="anim" style={{textAlign:"center"}}><div style={{fontSize:60,marginBottom:12}}>🛡️</div><div style={{fontFamily:"'Barlow Condensed'",fontSize:20,color:"#26de81",letterSpacing:2}}>Connexion sécurisée</div></div></div>);
+
+  if(etatJour==="les_deux")return(<div style={{minHeight:"100vh",background:"#0B0C14",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}><style>{css}</style><div style={{textAlign:"center",background:"#12131E",borderRadius:18,padding:32,border:"1px solid #26de8133",maxWidth:360,width:"100%"}}><div style={{fontSize:60,marginBottom:12}}>✅</div><div style={{fontFamily:"'Barlow Condensed'",fontSize:22,color:"#26de81",marginBottom:8}}>Journée complète !</div><div style={{color:"#666",fontSize:14,lineHeight:1.7}}>Arrivée et départ pointés sur <strong style={{color:"#FF5A1F"}}>{chantier.nom}</strong>.<br/>À demain ! 👋</div><button onClick={()=>{window.close();setTimeout(()=>window.location.replace("about:blank"),300)}} style={{marginTop:24,width:"100%",padding:16,borderRadius:12,border:"none",background:"linear-gradient(135deg,#45aaf2,#2d7fcf)",color:"#fff",fontWeight:800,fontSize:17,cursor:"pointer",letterSpacing:1,boxShadow:"0 4px 20px #45aaf244"}}>🔒 FERMER MA SESSION</button></div></div>);
+
+  const isEntree=type==="entree";
+  const couleurType=isEntree?"#26de81":"#45aaf2";
+
+  return(
+    <div style={{minHeight:"100vh",background:"#0B0C14",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:16}}>
+      <style>{css}</style>
+      {status==="success"?(
+        <div className="pop" style={{textAlign:"center",maxWidth:400,width:"100%",background:"#12131E",borderRadius:18,padding:30,border:`1px solid ${couleurType}33`}}>
+          <div style={{fontSize:80,marginBottom:8}}>{isEntree?"✅":"👋"}</div>
+          <div style={{fontFamily:"'Bebas Neue'",fontSize:36,color:couleurType,letterSpacing:2}}>{isEntree?"ARRIVÉE OK !":"DÉPART OK !"}</div>
+          <div style={{color:"#aaa",marginTop:8,fontSize:15}}>Bonne {isEntree?"journée":"fin de journée"} <strong style={{color:"#fff"}}>{salarie.prenom}</strong> !</div>
+          <div style={{marginTop:18,background:"#0B0C14",borderRadius:12,padding:"14px 18px",border:"1px solid #1C1F35",textAlign:"left"}}>
+            {[["Chantier",chantier.nom,null],["Type",isEntree?"🟢 Arrivée":"🔵 Départ",couleurType],["Heure",fmt(result.timestamp),"#f0f0f0"],["GPS",`✓ ${result.distance}m (±${result.accuracy}m)`,"#26de81"]].map(([l,v,c])=>(<div key={l} style={{display:"flex",justifyContent:"space-between",marginBottom:8,fontSize:14}}><span style={{color:"#666"}}>{l}</span><span style={{fontWeight:700,color:c||"#f0f0f0"}}>{v}</span></div>))}
+          </div>
+          {(
+            <div style={{marginTop:20}}>
+              <button onClick={()=>{window.close();setTimeout(()=>window.location.replace("about:blank"),300)}} style={{width:"100%",padding:16,borderRadius:12,border:"none",background:isEntree?"linear-gradient(135deg,#26de81,#1ab566)":"linear-gradient(135deg,#45aaf2,#2d7fcf)",color:isEntree?"#0B0C14":"#fff",fontWeight:800,fontSize:17,cursor:"pointer",letterSpacing:1,boxShadow:`0 4px 20px ${isEntree?"#26de8144":"#45aaf244"}`}}>
+                🔒 FERMER MA SESSION
+              </button>
+              {countdown!==null&&<div style={{marginTop:10,color:"#555",fontSize:13}}>Fermeture automatique dans <strong style={{color:isEntree?"#26de81":"#45aaf2"}}>{countdown}s</strong></div>}
+            </div>
+          )}
+        </div>
+      ):(
+        <div style={{width:"100%",maxWidth:420}}>
+          <div style={{background:`linear-gradient(135deg,${chantier.couleur},${chantier.couleur}cc)`,padding:"20px 22px",borderRadius:"16px 16px 0 0"}}>
+            <div style={{fontSize:11,fontWeight:700,letterSpacing:2,opacity:.75,color:"#fff"}}>VONERLEC — POINTAGE</div>
+            <div style={{fontFamily:"'Barlow Condensed'",fontSize:28,fontWeight:800,color:"#fff",lineHeight:1.1,marginTop:4}}>{chantier.nom}</div>
+            {chantier.adresse&&<div style={{fontSize:12,opacity:.7,color:"#fff",marginTop:4}}>📍 {chantier.adresse}</div>}
+          </div>
+          <div style={{background:"#12131E",borderRadius:"0 0 16px 16px",padding:22,border:"1px solid #252840",borderTop:"none"}}>
+            {/* TYPE — verrouillé si arrivée déjà faite */}
+            <div style={{display:"flex",gap:10,marginBottom:18}}>
+              {[["entree","🟢 ARRIVÉE","#26de81"],["sortie","🔵 DÉPART","#45aaf2"]].map(([t,label,color])=>{
+                const deja=etatJour==="entree"&&t==="entree";
+                const locked=etatJour==="entree"; // Si arrivée faite, on ne peut que sortie
+                return(<button key={t} onClick={()=>{if(!deja&&!locked){setType(t);setError("")}else if(locked&&t==="sortie"){setType("sortie");setError("")}}} style={{flex:1,padding:"14px 8px",borderRadius:10,border:`2px solid ${type===t&&!deja?color:"#252840"}`,background:deja?"#0a0a0a":type===t?color+"18":"#0B0C14",color:deja?"#333":type===t?color:"#555",fontWeight:700,fontSize:14,cursor:deja?"not-allowed":"pointer",letterSpacing:1}}>{label}{deja&&<div style={{fontSize:10,marginTop:3,color:"#444"}}>✓ déjà pointée</div>}</button>);
+              })}
+            </div>
+
+            {/* CODE SALARIÉ — verrouillé après badge */}
+            {salarie?(
+              <div style={{background:codeLocked?"#0f1a10":"#1a1030",borderRadius:10,padding:"12px 15px",marginBottom:16,border:`1px solid ${codeLocked?"#26de8133":"#7C5CBF33"}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div>
+                  <div style={{color:"#888",fontSize:12,marginBottom:2}}>{codeLocked?"🔒 Session active":"Bonjour"}</div>
+                  <div style={{fontWeight:700,fontSize:17}}>{salarie.prenom} {salarie.nom}</div>
+                </div>
+                {!codeLocked&&<button onClick={()=>{setSalarie(null);setCode("");saveLocal("vonerlec:code",null)}} style={{background:"none",border:"none",color:"#555",fontSize:12,cursor:"pointer",textDecoration:"underline",flexShrink:0}}>Changer</button>}
+                {codeLocked&&<Tag color="#26de81">🔒 Verrouillé</Tag>}
+              </div>
+            ):(
+              <div style={{marginBottom:16}}>
+                <label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>VOTRE CODE (6 caractères)</label>
+                <div style={{display:"flex",gap:8}}>
+                  <input value={code} onChange={e=>setCode(e.target.value.toUpperCase().slice(0,8))} placeholder="AAA99A" onKeyDown={e=>e.key==="Enter"&&validerCode()} style={{letterSpacing:3,fontWeight:700,fontSize:16,textAlign:"center",fontFamily:"'Barlow Condensed'"}}/>
+                  <button onClick={validerCode} style={{background:"linear-gradient(135deg,#FF5A1F,#FF7A45)",border:"none",borderRadius:10,color:"#fff",padding:"0 20px",fontWeight:700,cursor:"pointer",flexShrink:0,fontSize:14}}>OK</button>
+                </div>
+                <div style={{color:"#444",fontSize:12,marginTop:6}}>💡 Code donné par votre responsable</div>
+              </div>
+            )}
+
+            {/* EPI alert détaillée */}
+            {salarie&&type==="entree"&&epiConfig?.actif&&(()=>{
+              const info=getEpiAlertInfo();
+              const hardBlocked=isEpiHardBlocked();
+              const needed=checkEpiRequired();
+              if(!needed&&!hardBlocked)return null;
+              return(
+                <div style={{background:hardBlocked?"#2a1218":"#2a2010",borderRadius:10,padding:"12px 14px",border:`1px solid ${hardBlocked?"#fc5c6533":"#F7B73133"}`,marginBottom:14,fontSize:12,lineHeight:1.8}}>
+                  <div style={{color:hardBlocked?"#fc5c65":"#F7B731",fontWeight:700,marginBottom:4}}>
+                    🛡️ {hardBlocked?"⛔ Contrôle EPI obligatoire — Badge bloqué":"⚠️ Contrôle EPI requis"}
+                  </div>
+                  {info.restants>0&&<div style={{color:"#888"}}>Temps restant : <strong style={{color:"#F7B731"}}>{info.restants} jour{info.restants>1?"s":""}</strong></div>}
+                  {info.restants===0&&<div style={{color:"#fc5c65"}}>Délai expiré — pointage bloqué</div>}
+                  {info.manquants.length>0&&info.manquants.length<EPI_ITEMS.length&&(
+                    <div style={{color:"#888",marginTop:4}}>Éléments manquants : {info.manquants.map(id=>{const item=EPI_ITEMS.find(e=>e.id===id);return item?item.icon+" "+item.label:id}).join(", ")}</div>
+                  )}
+                  {info.manquants.length===EPI_ITEMS.length&&<div style={{color:"#888",marginTop:4}}>Aucune photo soumise</div>}
+                </div>
+              );
+            })()}
+
+            <div style={{background:"#0B0C14",borderRadius:10,padding:"10px 14px",border:"1px solid #1C1F35",marginBottom:14,fontSize:12,color:"#26de81",textAlign:"center",fontWeight:600}}>
+              🛡️ Connexion sécurisée
+            </div>
+            {gpsInfo&&status==="checking"&&<div style={{color:"#45aaf2",fontSize:12,marginBottom:10,animation:"pulse 1s infinite"}}>📡 {gpsInfo}</div>}
+            {error&&<div style={{background:"#2a1515",borderRadius:10,padding:"11px 14px",border:"1px solid #fc5c6533",color:"#fc5c65",fontSize:13,marginBottom:14,lineHeight:1.6,whiteSpace:"pre-line"}}>{error}</div>}
+            <button onClick={salarie?()=>pointer():validerCode} disabled={status==="checking"||(!salarie&&!code.trim())} style={{width:"100%",padding:14,borderRadius:10,border:"none",background:status==="checking"?"#2a2a2a":`linear-gradient(135deg,${couleurType},${couleurType}cc)`,color:status==="checking"?"#fff":isEntree?"#0B0C14":"#fff",fontWeight:800,fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",gap:10,cursor:status==="checking"?"not-allowed":"pointer",letterSpacing:1,boxShadow:status==="checking"?"none":`0 4px 20px ${couleurType}44`}}>
+              {status==="checking"?<><span style={{width:17,height:17,borderRadius:"50%",border:"2px solid #fff3",borderTopColor:isEntree?"#0B0C14":"#fff",display:"inline-block",animation:"spin .7s linear infinite"}}/>Vérification GPS...</>:salarie?(isEntree?"🟢 POINTER MON ARRIVÉE":"🔵 POINTER MON DÉPART"):"VALIDER MON CODE"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── PRÉSENCE CHANTIER MODAL ─────────────────────────────────────────────────
+function PresenceModal({chantier,pointages,salaries,onClose,onPurgeSalarie}){
+  const today=new Date().toDateString();
+  const todayP=pointages.filter(p=>p.chantierId===chantier.id&&new Date(p.timestamp).toDateString()===today);
+  const historiqueP=pointages.filter(p=>p.chantierId===chantier.id&&new Date(p.timestamp).toDateString()!==today);
+
+  // Grouper par salarié
+  const entreeMap={};const sortieSet=new Set();
+  todayP.forEach(p=>{
+    if(p.type!=="sortie"&&!entreeMap[p.code])entreeMap[p.code]=p;
+    if(p.type==="sortie")sortieSet.add(p.code);
+  });
+  const presents=Object.values(entreeMap).filter(p=>!sortieSet.has(p.code));
+  const partis=Object.values(entreeMap).filter(p=>sortieSet.has(p.code));
+
+  // Absents connus
+  const connusCodes=new Set(historiqueP.map(p=>p.code));
+  const todayCodes=new Set(todayP.map(p=>p.code));
+  const absents=[...connusCodes].filter(c=>!todayCodes.has(c)).map(code=>{
+    const last=historiqueP.filter(p=>p.code===code).sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp))[0];
+    const sal=salaries.find(s=>s.code===code);
+    return{code,...last,nom:sal?.nom||last?.nom,prenom:sal?.prenom||last?.prenom};
+  });
+
+  function purge(p){
+    if(confirm(`Purger les pointages d'aujourd'hui de ${p.prenom} ${p.nom} (${p.code}) sur ${chantier.nom} ?`)){
+      onPurgeSalarie(chantier.id,p.code);
+    }
+  }
+
+  return(
+    <Modal onClose={onClose} width={480}>
+      <div style={{fontFamily:"'Barlow Condensed'",fontSize:22,fontWeight:700,marginBottom:4}}>{chantier.nom}</div>
+      <div style={{color:"#666",fontSize:13,marginBottom:20}}>{new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"2-digit",month:"long"})}</div>
+
+      {presents.length>0&&(<div style={{marginBottom:18}}>
+        <div style={{color:"#26de81",fontSize:11,fontWeight:700,letterSpacing:1,marginBottom:8}}>🟢 SUR LE CHANTIER ({presents.length})</div>
+        {presents.map(p=>(<div key={p.code} style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"#0f2a1f",borderRadius:10,padding:"10px 14px",marginBottom:6,border:"1px solid #26de8122"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:34,height:34,borderRadius:8,background:"#FF5A1F22",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:12,color:"#FF5A1F",fontFamily:"'Barlow Condensed'"}}>{p.code}</div>
+            <div><div style={{fontWeight:700,fontSize:14}}>{p.prenom} {p.nom}</div><div style={{color:"#26de8188",fontSize:12}}>Arrivée à {fmt(p.timestamp)}</div></div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <Tag color="#26de81">Présent</Tag>
+            <button onClick={()=>purge(p)} title="Purger" style={{background:"#2a1218",border:"1px solid #fc5c6533",borderRadius:8,color:"#fc5c65",padding:"4px 8px",fontSize:11,cursor:"pointer",fontWeight:600}}>🗑️</button>
+          </div>
+        </div>))}
+      </div>)}
+
+      {partis.length>0&&(<div style={{marginBottom:18}}>
+        <div style={{color:"#45aaf2",fontSize:11,fontWeight:700,letterSpacing:1,marginBottom:8}}>🔵 PARTIS AUJOURD'HUI ({partis.length})</div>
+        {partis.map(p=>{const sortie=todayP.find(x=>x.code===p.code&&x.type==="sortie");return(<div key={p.code} style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"#0a1525",borderRadius:10,padding:"10px 14px",marginBottom:6,border:"1px solid #45aaf222"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:34,height:34,borderRadius:8,background:"#FF5A1F22",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:12,color:"#FF5A1F",fontFamily:"'Barlow Condensed'"}}>{p.code}</div>
+            <div><div style={{fontWeight:700,fontSize:14}}>{p.prenom} {p.nom}</div><div style={{color:"#45aaf288",fontSize:12}}>Parti à {sortie?fmt(sortie.timestamp):"?"}</div></div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <Tag color="#45aaf2">Parti</Tag>
+            <button onClick={()=>purge(p)} title="Purger" style={{background:"#2a1218",border:"1px solid #fc5c6533",borderRadius:8,color:"#fc5c65",padding:"4px 8px",fontSize:11,cursor:"pointer",fontWeight:600}}>🗑️</button>
+          </div>
+        </div>)})}
+      </div>)}
+
+      {absents.length>0&&(<div style={{marginBottom:18}}>
+        <div style={{color:"#555",fontSize:11,fontWeight:700,letterSpacing:1,marginBottom:8}}>⚫ ABSENTS AUJOURD'HUI ({absents.length})</div>
+        {absents.map(p=>(<div key={p.code} style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"#0B0C14",borderRadius:10,padding:"10px 14px",marginBottom:6,border:"1px solid #1C1F35"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:34,height:34,borderRadius:8,background:"#25284022",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:12,color:"#555",fontFamily:"'Barlow Condensed'"}}>{p.code}</div>
+            <div><div style={{fontWeight:700,fontSize:14,color:"#555"}}>{p.prenom} {p.nom}</div><div style={{color:"#333",fontSize:12}}>Dernier pointage : {p.timestamp?fmt(p.timestamp,"date"):"?"}</div></div>
+          </div>
+          <Tag color="#444">Absent</Tag>
+        </div>))}
+      </div>)}
+
+      {presents.length===0&&partis.length===0&&absents.length===0&&(
+        <div style={{textAlign:"center",padding:"30px 0",color:"#444",fontSize:14}}>Aucun salarié connu sur ce chantier</div>
+      )}
+      <Btn full onClick={onClose} variant="ghost" style={{marginTop:8}}>Fermer</Btn>
+    </Modal>
+  );
+}
+
+// ─── MODALS ADMIN ────────────────────────────────────────────────────────────
+function QRModal({chantier,onClose,onChangeQR}){
+  const[confirming,setConfirming]=useState(false);
+  const v=chantier.qrVersion||1;const link=`${window.location.href.split("#")[0]}#badge/${encodeQRData(chantier)}`;
+  const qrUrl=`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(link)}&margin=12&color=0D0E16&bgcolor=ffffff`;
+  const ca=chantier.qrChangedAt?new Date(chantier.qrChangedAt).toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"numeric"}):"—";
+  return(
+    <Modal onClose={onClose} width={400}>
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:14}}>
+        <div style={{fontFamily:"'Barlow Condensed'",fontSize:24,fontWeight:700,textAlign:"center"}}>{chantier.nom}</div>
+        <Tag color="#26de81">QR actif · v{v}</Tag>
+
+        {/* QR Code centré */}
+        <div style={{background:"#fff",borderRadius:16,padding:16,border:`4px solid ${chantier.couleur}`,lineHeight:0,marginTop:4}}>
+          <img src={qrUrl} alt="QR" style={{width:"100%",maxWidth:240,height:"auto",borderRadius:8,display:"block"}}/>
+        </div>
+
+        {/* Infos */}
+        <div style={{width:"100%",background:"#0B0C14",borderRadius:10,padding:"12px 16px",fontSize:13}}>
+          {[["Statut","🟢 Actif","#26de81"],["Rayon GPS",`${chantier.rayon}m`,null],["Changé le",ca,"#F7B731"]].map(([l,val,c])=>(
+            <div key={l} style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+              <span style={{color:"#666"}}>{l}</span>
+              <span style={{color:c||"#f0f0f0",fontWeight:c?700:400}}>{val}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Changer QR */}
+        {!confirming?(
+          <div style={{width:"100%",background:"#1a1010",borderRadius:10,padding:"12px 16px",border:"1px solid #fc5c6522"}}>
+            <div style={{color:"#fc5c65",fontWeight:700,fontSize:13,marginBottom:8}}>🔄 Changer le QR</div>
+            <Btn full onClick={()=>setConfirming(true)} variant="danger" small>Générer un nouveau QR</Btn>
+          </div>
+        ):(
+          <div style={{width:"100%",background:"#2a1010",borderRadius:10,padding:"14px 16px",border:"1px solid #fc5c65"}}>
+            <div style={{color:"#fc5c65",fontWeight:700,marginBottom:10}}>⚠️ L'ancien QR sera invalide immédiatement</div>
+            <div style={{display:"flex",gap:10}}>
+              <Btn full onClick={()=>{onChangeQR(chantier.id);setConfirming(false)}} variant="danger">Confirmer</Btn>
+              <Btn full onClick={()=>setConfirming(false)} variant="ghost">Annuler</Btn>
+            </div>
+          </div>
+        )}
+
+        <Btn full onClick={()=>window.print()} variant="secondary">🖨️ Imprimer</Btn>
+        <Btn full onClick={onClose} variant="ghost">Fermer</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function ChantierForm({initial,onSave,onClose}){
+  const[form,setForm]=useState(initial||{nom:"",adresse:"",lat:"",lon:"",rayon:200,couleur:"#FF5A1F"});
+  const[searchAdresse,setSearchAdresse]=useState(initial?.adresse||"");
+  const[suggestions,setSuggestions]=useState([]);
+  const[searchStatus,setSearchStatus]=useState(initial?.lat?"selected":"");
+  const[gpsStatus,setGpsStatus]=useState("");
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+  async function rechercher(){
+    if(!searchAdresse.trim())return;setSearchStatus("loading");setSuggestions([]);
+    try{const res=await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(searchAdresse+" France")}&limit=5&lang=fr`);const data=await res.json();
+      const results=(data.features||[]).map(f=>{const p=f.properties;const parts=[];if(p.housenumber&&p.street)parts.push(p.housenumber+" "+p.street);else if(p.street)parts.push(p.street);else if(p.name)parts.push(p.name);if(p.postcode)parts.push(p.postcode);if(p.city)parts.push(p.city);return{label:parts.join(", ")||p.name||"Adresse",lat:f.geometry.coordinates[1].toFixed(6),lon:f.geometry.coordinates[0].toFixed(6)}});
+      if(results.length===1)choisir(results[0]);else if(results.length>1){setSuggestions(results);setSearchStatus("ok")}else setSearchStatus("error");
+    }catch{setSearchStatus("error")}
+  }
+  function choisir(s){set("adresse",s.label);set("lat",s.lat);set("lon",s.lon);setSearchAdresse(s.label);setSuggestions([]);setSearchStatus("selected")}
+  function useGPS(){if(!navigator.geolocation)return;setGpsStatus("loading");navigator.geolocation.getCurrentPosition(p=>{set("lat",p.coords.latitude.toFixed(6));set("lon",p.coords.longitude.toFixed(6));setGpsStatus("ok")},()=>setGpsStatus("error"),{enableHighAccuracy:true,timeout:10000})}
+  const ok=form.lat&&form.lon;
+  return(<Modal onClose={onClose}><div style={{fontFamily:"'Barlow Condensed'",fontSize:22,fontWeight:700,marginBottom:20}}>{initial?.id?"✏️ Modifier":"➕ Nouveau chantier"}</div><div style={{display:"flex",flexDirection:"column",gap:14}}>
+    <div><label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>NOM *</label><input value={form.nom} onChange={e=>set("nom",e.target.value)} placeholder="Résidence Les Pins"/></div>
+    <div><label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>🔍 ADRESSE</label><div style={{display:"flex",gap:8}}><input value={searchAdresse} onChange={e=>{setSearchAdresse(e.target.value);setSuggestions([]);setSearchStatus("")}} onKeyDown={e=>e.key==="Enter"&&rechercher()} placeholder="12 Rue de la Paix, Lyon" style={{flex:1}}/><button onClick={rechercher} disabled={searchStatus==="loading"} style={{background:"linear-gradient(135deg,#FF5A1F,#FF7A45)",border:"none",borderRadius:10,color:"#fff",padding:"0 16px",fontWeight:700,cursor:"pointer",flexShrink:0}}>{searchStatus==="loading"?"⏳":"🔍"}</button></div>
+      {searchStatus==="selected"&&<div style={{marginTop:6,background:"#0f2a1f",borderRadius:8,padding:"10px 14px",border:"1px solid #26de8133",fontSize:13,color:"#26de81"}}>✅ {form.adresse}</div>}
+      {suggestions.length>0&&<div style={{marginTop:6,background:"#151724",borderRadius:8,border:"2px solid #FF5A1F",overflow:"hidden"}}>{suggestions.map((s,i)=><div key={i} onClick={()=>choisir(s)} style={{padding:"12px 14px",cursor:"pointer",borderBottom:i<suggestions.length-1?"1px solid #252840":"none",fontSize:13}} onMouseEnter={e=>e.currentTarget.style.background="#FF5A1F18"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>📍 {s.label}</div>)}</div>}
+    </div>
+    <div><label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>📍 GPS</label><button onClick={useGPS} style={{width:"100%",background:"#151724",border:`1.5px solid ${gpsStatus==="ok"?"#26de81":"#252840"}`,borderRadius:10,color:gpsStatus==="ok"?"#26de81":"#aaa",padding:"11px 14px",fontSize:13,cursor:"pointer"}}>{gpsStatus==="loading"?"⏳ Récupération...":gpsStatus==="ok"?"✅ Position GPS OK":"📍 Utiliser ma position"}</button></div>
+    <div><label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>LAT / LON</label><div style={{display:"flex",gap:10}}><input value={form.lat} onChange={e=>{set("lat",e.target.value);if(e.target.value)setSearchStatus("selected")}} placeholder="48.6291"/><input value={form.lon} onChange={e=>{set("lon",e.target.value)}} placeholder="2.4407"/></div></div>
+    {ok&&<div style={{background:"#0f2a1f",borderRadius:8,padding:"8px 14px",border:"1px solid #26de8133",fontSize:13,color:"#26de81"}}>🎯 Position : {parseFloat(form.lat).toFixed(4)}, {parseFloat(form.lon).toFixed(4)}</div>}
+    <div><label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>RAYON (m)</label><input type="number" value={form.rayon} onChange={e=>set("rayon",e.target.value)} min={50} max={1000}/></div>
+    <div><label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:8}}>COULEUR</label><div style={{display:"flex",gap:10,flexWrap:"wrap"}}>{COULEURS.map(c=><div key={c} onClick={()=>set("couleur",c)} style={{width:34,height:34,borderRadius:10,background:c,cursor:"pointer",border:form.couleur===c?"3px solid #fff":"3px solid transparent",transform:form.couleur===c?"scale(1.15)":"scale(1)",transition:"all .15s"}}/>)}</div></div>
+  </div><div style={{display:"flex",gap:10,marginTop:22}}><Btn full onClick={()=>{if(!form.nom)return alert("Nom requis");if(!form.lat||!form.lon)return alert("Position GPS requise");onSave({...form,id:initial?.id,lat:parseFloat(form.lat),lon:parseFloat(form.lon),rayon:parseInt(form.rayon)||200})}}>{initial?.id?"💾 Enregistrer":"✅ Créer"}</Btn><Btn full onClick={onClose} variant="ghost">Annuler</Btn></div></Modal>);
+}
+
+function SalarieForm({initial,salaries,onSave,onClose,onDelete}){
+  const[form,setForm]=useState(initial||{code:"",nom:"",prenom:"",actif:true});
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+  function autoCode(){
+    if(form.prenom&&form.nom){
+      const randLetter=()=>"ABCDEFGHJKLMNPQRSTUVWXYZ"[Math.floor(Math.random()*24)];
+      const allParts=[...form.prenom.trim().split(/\s+/),...form.nom.trim().split(/\s+/)];
+      let initials=allParts.map(w=>w[0]).join("").toUpperCase();
+      if(initials.length>=3) initials=initials.slice(0,3);
+      else while(initials.length<3) initials+=randLetter();
+      let n=1;
+      while(salaries.some(s=>s.code.startsWith(initials+String(n).padStart(2,"0"))&&(!initial||s.code!==initial.code)))n++;
+      set("code",initials+String(n).padStart(2,"0")+randLetter());
+    }
+  }
+  useEffect(()=>{if(!initial&&form.prenom&&form.nom)autoCode()},[form.prenom,form.nom]);
+  return(<Modal onClose={onClose} width={420}><div style={{fontFamily:"'Barlow Condensed'",fontSize:22,fontWeight:700,marginBottom:20}}>{initial?"✏️ Modifier":"➕ Nouveau salarié"}</div><div style={{display:"flex",flexDirection:"column",gap:14}}>
+    <div style={{display:"flex",gap:10}}><div style={{flex:1}}><label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>PRÉNOM</label><input value={form.prenom} onChange={e=>set("prenom",e.target.value)} placeholder="Jamil"/></div><div style={{flex:1}}><label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>NOM</label><input value={form.nom} onChange={e=>set("nom",e.target.value.toUpperCase())} placeholder="MOHAMMAD"/></div></div>
+    <div><label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>CODE UNIQUE (6 caractères)</label><div style={{display:"flex",gap:8}}><input value={form.code} onChange={e=>set("code",e.target.value.toUpperCase().slice(0,8))} placeholder="AAA99A" style={{letterSpacing:3,fontWeight:700,fontSize:16,textAlign:"center",fontFamily:"'Barlow Condensed'"}}/><Btn small onClick={autoCode} variant="secondary">Auto</Btn></div></div>
+    <div style={{display:"flex",alignItems:"center",gap:10}}><label style={{color:"#666",fontSize:12}}>Actif</label><button onClick={()=>set("actif",!form.actif)} style={{width:44,height:24,borderRadius:12,background:form.actif?"#26de81":"#252840",border:"none",position:"relative",cursor:"pointer",transition:"all .2s"}}><div style={{width:20,height:20,borderRadius:10,background:"#fff",position:"absolute",top:2,left:form.actif?22:2,transition:"left .2s"}}/></button><span style={{color:form.actif?"#26de81":"#666",fontSize:12}}>{form.actif?"Oui":"Non"}</span></div>
+  </div><div style={{display:"flex",gap:10,marginTop:20}}><Btn full onClick={()=>{if(!form.code||!form.nom||!form.prenom)return alert("Tous les champs sont requis");if(!initial&&salaries.some(s=>s.code===form.code))return alert("Ce code existe déjà");onSave(form)}}>✅ Enregistrer</Btn><Btn full onClick={onClose} variant="ghost">Annuler</Btn></div>
+  {initial&&onDelete&&(<div style={{marginTop:16,paddingTop:16,borderTop:"1px solid #252840"}}><Btn full onClick={()=>{if(confirm(`Voulez-vous supprimer la fiche de ${form.prenom} ${form.nom} (${form.code}) ?\n\nCette action est irréversible.`)){onDelete(form.code);onClose()}}} variant="danger">🗑️ Supprimer ce salarié</Btn></div>)}
+  </Modal>);
+}
+
+function SaisieManuelleModal({chantiers,salaries,onSave,onClose}){
+  const[form,setForm]=useState({code:salaries[0]?.code||"",chantierId:chantiers[0]?.id||"",type:"entree",date:new Date().toISOString().slice(0,10),heure:new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})});
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+  function valider(){
+    const sal=salaries.find(s=>s.code===form.code);if(!sal)return alert("Code salarié invalide");
+    const ch=chantiers.find(c=>c.id==form.chantierId);const[h,m]=form.heure.split(":");
+    const ts=new Date(`${form.date}T${h.padStart(2,"0")}:${m.padStart(2,"0")}:00`).toISOString();
+    onSave({id:Date.now(),chantierId:ch.id,chantierNom:ch.nom,code:sal.code,nom:sal.nom,prenom:sal.prenom,type:form.type,timestamp:ts,distance:0,manuel:true});
+  }
+  return(<Modal onClose={onClose} width={440}><div style={{fontFamily:"'Barlow Condensed'",fontSize:22,fontWeight:700,marginBottom:20}}>✏️ Saisie manuelle</div><div style={{display:"flex",flexDirection:"column",gap:14}}>
+    <div><label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>SALARIÉ</label><select value={form.code} onChange={e=>set("code",e.target.value)}>{salaries.filter(s=>s.actif).map(s=><option key={s.code} value={s.code}>{s.code} — {s.prenom} {s.nom}</option>)}</select></div>
+    <div><label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>CHANTIER</label><select value={form.chantierId} onChange={e=>set("chantierId",e.target.value)}>{chantiers.map(c=><option key={c.id} value={c.id}>{c.nom}</option>)}</select></div>
+    <div style={{display:"flex",gap:10}}>{[["entree","🟢 Arrivée"],["sortie","🔵 Départ"]].map(([t,l])=>(<button key={t} onClick={()=>set("type",t)} style={{flex:1,padding:11,borderRadius:8,border:`2px solid ${form.type===t?"#FF5A1F":"#252840"}`,background:form.type===t?"#FF5A1F18":"#0B0C14",color:form.type===t?"#FF5A1F":"#555",fontWeight:700,fontSize:13,cursor:"pointer"}}>{l}</button>))}</div>
+    <div style={{display:"flex",gap:10}}><div style={{flex:1}}><label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>DATE</label><input type="date" value={form.date} onChange={e=>set("date",e.target.value)}/></div><div style={{flex:1}}><label style={{color:"#666",fontSize:11,letterSpacing:1,display:"block",marginBottom:6}}>HEURE</label><input type="time" value={form.heure} onChange={e=>set("heure",e.target.value)}/></div></div>
+    <div style={{background:"#1a1010",borderRadius:8,padding:"10px 14px",border:"1px solid #F7B73133",fontSize:12,color:"#F7B731"}}>⚠️ Marqué "Manuel" dans l'historique</div>
+  </div><div style={{display:"flex",gap:10,marginTop:20}}><Btn full onClick={valider}>✅ Enregistrer</Btn><Btn full onClick={onClose} variant="ghost">Annuler</Btn></div></Modal>);
+}
+
+// ─── ADMIN APP ───────────────────────────────────────────────────────────────
+function AdminApp({chantiers,pointages,salaries,epiRecords,epiConfig,storageUsed,alerts,offline,onSaveChantier,onDeleteChantier,onDeletePointage,onChangeQR,onLogout,onRefresh,onAddManuel,onClearAll,onClearToday,onPurgeSalarie,onSaveSalarie,onDeleteSalarie,onSaveEpiConfig,onTraiterAlerte}){
+  const[tab,setTab]=useState("dashboard");
+  const[showQR,setShowQR]=useState(null);const[showAdd,setShowAdd]=useState(false);const[editItem,setEditItem]=useState(null);
+  const[showManuel,setShowManuel]=useState(false);const[showAddSal,setShowAddSal]=useState(false);const[editSal,setEditSal]=useState(null);
+  const[showPresence,setShowPresence]=useState(null);
+  const[toast,setToast]=useState(null);const[prevCount,setPrevCount]=useState(pointages.length);
+  const[refreshing,setRefreshing]=useState(false);const[lastRefresh,setLastRefresh]=useState(new Date());
+  const[filterChantier,setFilterChantier]=useState("all");const[filterDate,setFilterDate]=useState("");
+  const[epiViewCode,setEpiViewCode]=useState(null);
+
+  const today=new Date().toDateString();
+  const todayP=pointages.filter(p=>new Date(p.timestamp).toDateString()===today);
+
+  const todayGrouped=useMemo(()=>{
+    const map={};
+    todayP.forEach(p=>{const k=p.code+"__"+p.chantierId;if(!map[k])map[k]={code:p.code,nom:p.nom,prenom:p.prenom,chantierId:p.chantierId,chantierNom:p.chantierNom,entree:null,sortie:null};if(p.type!=="sortie"&&!map[k].entree)map[k].entree=p;if(p.type==="sortie"&&!map[k].sortie)map[k].sortie=p});
+    return Object.values(map).sort((a,b)=>{const tA=a.sortie?.timestamp||a.entree?.timestamp;const tB=b.sortie?.timestamp||b.entree?.timestamp;return new Date(tB)-new Date(tA)});
+  },[todayP]);
+
+  const nbPresents=todayGrouped.filter(g=>g.entree&&!g.sortie).length;
+  const nbPartis=todayGrouped.filter(g=>g.entree&&g.sortie).length;
+
+  useEffect(()=>{const t=setInterval(()=>{onRefresh();setLastRefresh(new Date())},15000);return()=>clearInterval(t)},[]);
+  useEffect(()=>{if(pointages.length>prevCount&&prevCount>0){const n=pointages[0];setToast({msg:`${n.prenom} ${n.nom} ${n.type==="sortie"?"est parti":"vient d'arriver"} !`,sub:`${n.chantierNom} · ${fmt(n.timestamp)}`})}setPrevCount(pointages.length)},[pointages.length]);
+  useEffect(()=>{if(showQR){const u=chantiers.find(c=>c.id===showQR.id);if(u)setShowQR(u)}},[chantiers]);
+
+  const filteredP=useMemo(()=>{let l=pointages;if(filterChantier!=="all")l=l.filter(p=>p.chantierId==filterChantier);if(filterDate)l=l.filter(p=>new Date(p.timestamp).toISOString().slice(0,10)===filterDate);return l},[pointages,filterChantier,filterDate]);
+
+  const tabs=[["dashboard","📊 Dashboard"],["chantiers","🏗️ Chantiers"],["salaries","👷 Salariés"],["epi","🛡️ EPI"],["pointages","📋 Historique"]];
+
+  return(
+    <div style={{minHeight:"100vh",background:"#0B0C14"}}>
+      <style>{css}</style>
+      {toast&&<Toast msg={toast.msg} sub={toast.sub} onClose={()=>setToast(null)}/>}
+      {offline&&<div style={{background:"#2a1515",borderBottom:"1px solid #fc5c6533",padding:"8px 20px",textAlign:"center",fontSize:12,color:"#fc5c65",fontWeight:600}}>⚠️ Firebase inaccessible — les données affichées peuvent être obsolètes</div>}
+
+      {/* HEADER */}
+      <div style={{background:"#0f1019",borderBottom:"1px solid #1C1F35",padding:"0 20px",display:"flex",alignItems:"center",justifyContent:"space-between",height:58,position:"sticky",top:0,zIndex:100}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}><span style={{fontSize:24}}>🏗️</span><div><div style={{fontFamily:"'Bebas Neue'",fontSize:22,letterSpacing:3,color:"#FF5A1F",lineHeight:1}}>VONERLEC</div><div style={{fontSize:9,color:"#444",letterSpacing:1.5,fontWeight:600}}>GESTION DE CHANTIER</div></div></div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}><button onClick={()=>{setRefreshing(true);onRefresh();setLastRefresh(new Date());setTimeout(()=>setRefreshing(false),600)}} style={{background:"#1C1F35",border:"1px solid #252840",borderRadius:10,color:"#888",padding:"7px 12px",fontSize:12,cursor:"pointer"}}><span style={{display:"inline-block",animation:refreshing?"spin .7s linear infinite":"none"}}>🔄</span></button><Btn small onClick={onLogout} variant="ghost">Déco.</Btn></div>
+      </div>
+
+      {/* TABS */}
+      <div style={{background:"#0f1019",borderBottom:"1px solid #1C1F35",padding:"0 12px",display:"flex",gap:2,overflowX:"auto"}}>
+        {tabs.map(([id,label])=>(<button key={id} onClick={()=>setTab(id)} style={{background:tab===id?"#FF5A1F18":"none",border:"none",color:tab===id?"#FF5A1F":"#555",padding:"11px 14px",fontSize:12,fontWeight:600,cursor:"pointer",borderBottom:tab===id?"2px solid #FF5A1F":"2px solid transparent",borderRadius:"8px 8px 0 0",whiteSpace:"nowrap"}}>{label}</button>))}
+      </div>
+
+      <div style={{padding:20,maxWidth:1200,margin:"0 auto"}}>
+
+        {/* ── DASHBOARD ── */}
+        {tab==="dashboard"&&(<div className="anim">
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:18,flexWrap:"wrap",gap:8}}>
+            <div><div style={{fontFamily:"'Barlow Condensed'",fontSize:26,fontWeight:800}}>{new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"2-digit",month:"long"})}</div><div style={{color:"#444",fontSize:12,marginTop:2}}>Actualisé à {fmt(lastRefresh.toISOString())} · auto /15s</div></div>
+            <div style={{display:"flex",gap:8}}><Btn small onClick={()=>exporterExcel(pointages,chantiers,salaries)} variant="secondary">📊 Excel</Btn><Btn small onClick={()=>setShowManuel(true)} variant="secondary">✏️ Manuel</Btn></div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:20}}>
+            {[{l:"Chantiers",v:chantiers.length,i:"🏗️",c:"#FF5A1F",tab:"chantiers"},{l:"Salariés",v:salaries.filter(s=>s.actif).length,i:"👷",c:"#7C5CBF",tab:"salaries"},{l:"Sur site",v:nbPresents,i:"🟢",c:"#26de81"},{l:"Partis",v:nbPartis,i:"🔵",c:"#45aaf2"},{l:"Pointages",v:todayP.length,i:"📋",c:"#F7B731"}].map((s,i)=>(
+              <div key={i} className="card" style={{padding:"14px 16px",cursor:s.tab?"pointer":undefined}} onClick={s.tab?()=>setTab(s.tab):undefined}><div style={{fontSize:20,marginBottom:4}}>{s.i}</div><div style={{fontFamily:"'Bebas Neue'",fontSize:32,color:s.c,lineHeight:1}}>{s.v}</div><div style={{color:"#555",fontSize:11,marginTop:2}}>{s.l}</div></div>
+            ))}
+          </div>
+
+          {/* Jauge stockage Firebase */}
+          {storageUsed>0&&(()=>{
+            const pct=Math.min((storageUsed/FIREBASE_MAX_BYTES)*100,100);
+            const mb=(storageUsed/(1024*1024)).toFixed(1);
+            const maxMb=(FIREBASE_MAX_BYTES/(1024*1024)).toFixed(0);
+            const color=pct>80?"#fc5c65":pct>50?"#F7B731":"#26de81";
+            return(
+              <div className="card" style={{padding:"12px 16px",marginBottom:12,display:"flex",alignItems:"center",gap:14}}>
+                <div style={{fontSize:18}}>💾</div>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                    <span style={{color:"#888",fontSize:11,fontWeight:600}}>Stockage Firebase</span>
+                    <span style={{color,fontSize:11,fontWeight:700}}>{mb} Mo / {maxMb} Mo ({pct.toFixed(1)}%)</span>
+                  </div>
+                  <div style={{width:"100%",height:6,background:"#1C1F35",borderRadius:3,overflow:"hidden"}}>
+                    <div style={{width:`${pct}%`,height:"100%",background:`linear-gradient(90deg,${color},${color}cc)`,borderRadius:3,transition:"width .5s ease"}}/>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Alertes de sécurité */}
+          {alerts.length>0&&(()=>{
+            const recent=alerts.filter(a=>{const d=new Date()-new Date(a.timestamp);return d<7*86400000}).slice(0,20);
+            if(recent.length===0)return null;
+            return(
+              <div className="card" style={{padding:16,marginBottom:12,borderColor:"#fc5c6533"}}>
+                <div style={{fontFamily:"'Barlow Condensed'",fontSize:15,fontWeight:700,marginBottom:10,color:"#fc5c65",display:"flex",alignItems:"center",gap:8}}>
+                  🚨 Alertes sécurité <Tag color="#fc5c65">{recent.length}</Tag>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {recent.map((a,i)=>(
+                    <div key={i} style={{display:"flex",alignItems:"center",gap:10,background:"#2a1218",borderRadius:8,padding:"8px 12px",border:"1px solid #fc5c6522",fontSize:12}}>
+                      <span style={{color:"#fc5c65",fontWeight:700,flexShrink:0}}>{a.code}</span>
+                      <span style={{color:"#888",flexShrink:0}}>{a.chantierNom}</span>
+                      <span style={{color:"#fc5c65",flex:1}}>{a.type==="gps_suspect"?"📡 GPS suspect":a.type==="code_inconnu"?"🔑 Code inconnu: "+a.code:"⚠️ Alerte"}{a.flags?" ("+a.flags.join(", ")+")":""}</span>
+                      <span style={{color:"#666",flexShrink:0,fontSize:11}}>{fmt(a.timestamp,"date")} {fmt(a.timestamp)}</span>
+                      <button onClick={()=>onTraiterAlerte(a._key)} style={{background:"#132a1f",border:"1px solid #26de8133",borderRadius:7,color:"#26de81",padding:"4px 10px",fontSize:11,cursor:"pointer",fontWeight:700,flexShrink:0,whiteSpace:"nowrap"}}>✓ Traiter</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
+          <div className="card" style={{padding:18}}>
+            <div style={{fontFamily:"'Barlow Condensed'",fontSize:17,fontWeight:700,marginBottom:14,display:"flex",alignItems:"center",gap:10}}>Activité du jour {todayGrouped.length>0&&<Tag color="#FF5A1F">{todayGrouped.length} salarié{todayGrouped.length>1?"s":""}</Tag>}</div>
+            {todayGrouped.length===0?<div style={{color:"#444",textAlign:"center",padding:"24px 0",fontSize:13}}>Aucun pointage aujourd'hui</div>
+              :<div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {todayGrouped.map((g,i)=>{const ch=chantiers.find(c=>c.id===g.chantierId);const pres=g.entree&&!g.sortie;let duree="";if(g.entree&&g.sortie){const d=new Date(g.sortie.timestamp)-new Date(g.entree.timestamp);if(d>0){const h=Math.floor(d/3600000);const m=Math.floor((d%3600000)/60000);duree=`${h}h${m.toString().padStart(2,"0")}`}}
+                  return(<div key={i} style={{display:"flex",alignItems:"center",background:"#0B0C14",borderRadius:12,padding:"10px 14px",border:`1px solid ${pres?"#26de8118":"#1C1F35"}`,gap:12,flexWrap:"wrap"}}>
+                    <div style={{width:40,height:40,borderRadius:10,background:"#FF5A1F22",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:14,color:"#FF5A1F",fontFamily:"'Barlow Condensed'",flexShrink:0}}>{g.code}</div>
+                    <div style={{flex:1,minWidth:100}}><div style={{fontWeight:700,fontSize:14}}>{g.prenom} {g.nom}</div><div style={{color:"#555",fontSize:12}}>{g.chantierNom}</div></div>
+                    <div style={{textAlign:"center",minWidth:55}}><div style={{fontSize:10,color:"#26de81",fontWeight:600}}>ARRIVÉE</div><div style={{fontWeight:700,fontSize:14,color:g.entree?"#f0f0f0":"#333"}}>{g.entree?fmt(g.entree.timestamp):"—"}</div></div>
+                    <div style={{textAlign:"center",minWidth:55}}><div style={{fontSize:10,color:"#45aaf2",fontWeight:600}}>DÉPART</div><div style={{fontWeight:700,fontSize:14,color:g.sortie?"#f0f0f0":"#333"}}>{g.sortie?fmt(g.sortie.timestamp):"—"}</div></div>
+                    <div style={{textAlign:"center",minWidth:45}}><div style={{fontSize:10,color:"#F7B731",fontWeight:600}}>DURÉE</div><div style={{fontWeight:700,fontSize:13,color:duree?"#F7B731":"#333"}}>{duree||"..."}</div></div>
+                    <Tag color={pres?"#26de81":"#45aaf2"}>{pres?"Sur site":"Parti"}</Tag>
+                  </div>)})}
+              </div>}
+          </div>
+        </div>)}
+
+        {/* ── CHANTIERS ── */}
+        {tab==="chantiers"&&(<div className="anim">
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}><div style={{fontFamily:"'Barlow Condensed'",fontSize:24,fontWeight:800}}>Chantiers & QR Codes</div><Btn onClick={()=>setShowAdd(true)}>➕ Nouveau</Btn></div>
+          {chantiers.length===0&&<div className="card" style={{padding:"40px 20px",textAlign:"center",color:"#555"}}>Aucun chantier</div>}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:14}}>
+            {chantiers.map(ch=>{const ver=ch.qrVersion||1;const pres=todayGrouped.filter(g=>g.chantierId===ch.id&&g.entree&&!g.sortie);return(
+              <div key={ch.id} className="card" style={{overflow:"hidden"}}><div style={{background:`linear-gradient(135deg,${ch.couleur},${ch.couleur}aa)`,padding:"14px 18px"}}><div style={{fontFamily:"'Barlow Condensed'",fontSize:20,fontWeight:800,color:"#fff"}}>{ch.nom}</div><div style={{fontSize:12,color:"#ffffff77",marginTop:2}}>📍 {ch.adresse||"—"}</div></div>
+                <div style={{padding:"14px 16px"}}><div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}><Tag color={ch.couleur}>📡 {ch.rayon}m</Tag><Tag color="#26de81">🟢 {pres.length} présent{pres.length>1?"s":""}</Tag><Tag color="#F7B731">QR v{ver}</Tag></div>
+                  <div style={{display:"flex",gap:8}}><Btn small full onClick={()=>setShowPresence(ch)}>👥 Présences</Btn><Btn small full onClick={()=>setShowQR(ch)}>📱 QR</Btn><Btn small onClick={()=>setEditItem(ch)} variant="ghost">✏️</Btn><Btn small onClick={()=>{if(confirm("Supprimer ?"))onDeleteChantier(ch.id)}} variant="danger">🗑️</Btn></div>
+                </div></div>)})}
+          </div>
+        </div>)}
+
+        {/* ── SALARIÉS ── */}
+        {tab==="salaries"&&(<div className="anim">
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}><div style={{fontFamily:"'Barlow Condensed'",fontSize:24,fontWeight:800}}>Salariés <Tag color="#7C5CBF">{salaries.length}</Tag></div><Btn onClick={()=>setShowAddSal(true)}>➕ Ajouter</Btn></div>
+          {salaries.length===0?<div className="card" style={{padding:"40px 20px",textAlign:"center",color:"#555"}}>Aucun salarié enregistré</div>
+          :<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
+            {salaries.map(s=>{
+              const rec=epiRecords?.[s.code];
+              const overdue=isEpiOverdue(rec?.lastUpdate,rec?.firstSeen);
+              const restants=joursRestantsEpi(rec?.lastUpdate,rec?.firstSeen);
+              const epiOk=!epiConfig?.actif||(!epiRequis(rec?.lastUpdate,epiConfig.frequence)&&!overdue);
+              // Statut présence aujourd'hui
+              const todayEntry=todayGrouped.find(g=>g.code===s.code);
+              const isOnSite=todayEntry&&todayEntry.entree&&!todayEntry.sortie;
+              const hasLeft=todayEntry&&todayEntry.entree&&todayEntry.sortie;
+              // Couleur fond
+              const bgColor=isOnSite?"#0f2a1f":hasLeft?"#0a3d4a":"#12131E";
+              const borderColor=isOnSite?"#26de8133":hasLeft?"#4ECDC499":"#1C1F35";
+              return(<div key={s.code} style={{background:bgColor,borderRadius:14,border:`1px solid ${borderColor}`,padding:"14px 16px",opacity:s.actif?1:.5}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+                  <div style={{fontWeight:700,fontSize:15,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",flex:1}}>{s.prenom} {s.nom}</div>
+                  <button onClick={()=>setEditSal(s)} style={{background:"#1C1F35",border:"1px solid #252840",borderRadius:8,color:"#bbb",padding:"3px 10px",fontSize:11,cursor:"pointer",fontWeight:600,flexShrink:0}}>✏️ Modifier</button>
+                </div>
+                <div style={{display:"flex",gap:6,marginTop:7,flexWrap:"wrap",alignItems:"center"}}>
+                  {s.actif?<Tag color="#26de81">Actif</Tag>:<Tag color="#fc5c65">Inactif</Tag>}
+                  {isOnSite&&<Tag color="#26de81">🟢 Sur site</Tag>}
+                  {hasLeft&&<Tag color="#45aaf2">🔵 Parti</Tag>}
+                  {epiOk?<Tag color="#26de81">EPI ✓</Tag>:<Tag color={overdue?"#fc5c65":"#F7B731"}>{overdue?"EPI ⛔":"EPI "+restants+"j"}</Tag>}
+                </div>
+
+              </div>)})}
+          </div>}
+        </div>)}
+
+        {/* ── EPI ── */}
+        {tab==="epi"&&(<div className="anim">
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
+            <div style={{fontFamily:"'Barlow Condensed'",fontSize:24,fontWeight:800}}>🛡️ Contrôle EPI</div>
+          </div>
+
+          {/* Config */}
+          <div className="card" style={{padding:18,marginBottom:20}}>
+            <div style={{fontFamily:"'Barlow Condensed'",fontSize:17,fontWeight:700,marginBottom:14}}>⚙️ Configuration</div>
+            <div style={{display:"flex",gap:14,flexWrap:"wrap",alignItems:"center"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <label style={{color:"#666",fontSize:12}}>Activer</label>
+                <button onClick={()=>onSaveEpiConfig({...epiConfig,actif:!epiConfig?.actif})} style={{width:44,height:24,borderRadius:12,background:epiConfig?.actif?"#26de81":"#252840",border:"none",position:"relative",cursor:"pointer"}}><div style={{width:20,height:20,borderRadius:10,background:"#fff",position:"absolute",top:2,left:epiConfig?.actif?22:2,transition:"left .2s"}}/></button>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <label style={{color:"#666",fontSize:12}}>Fréquence</label>
+                <select value={epiConfig?.frequence||"semaine"} onChange={e=>onSaveEpiConfig({...epiConfig,frequence:e.target.value})} style={{maxWidth:140}}>
+                  <option value="jour">Chaque jour</option><option value="semaine">Chaque semaine</option><option value="mois">Chaque mois</option>
+                </select>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <label style={{color:"#666",fontSize:12}}>Bloquer le badge</label>
+                <button onClick={()=>onSaveEpiConfig({...epiConfig,bloquer:!epiConfig?.bloquer})} style={{width:44,height:24,borderRadius:12,background:epiConfig?.bloquer?"#fc5c65":"#252840",border:"none",position:"relative",cursor:"pointer"}}><div style={{width:20,height:20,borderRadius:10,background:"#fff",position:"absolute",top:2,left:epiConfig?.bloquer?22:2,transition:"left .2s"}}/></button>
+                <span style={{color:"#666",fontSize:11}}>{epiConfig?.bloquer?"Oui":"Non"}</span>
+              </div>
+              <div style={{color:"#888",fontSize:11}}>⚠️ Blocage auto à 15 jours sans contrôle</div>
+            </div>
+          </div>
+
+          {/* Conformité par salarié — trié par dernière mise à jour */}
+          <div className="card" style={{padding:18}}>
+            <div style={{fontFamily:"'Barlow Condensed'",fontSize:17,fontWeight:700,marginBottom:14}}>Conformité par salarié</div>
+            {salaries.filter(s=>s.actif).length===0?<div style={{color:"#444",fontSize:13,textAlign:"center",padding:20}}>Aucun salarié actif</div>
+            :<div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {salaries.filter(s=>s.actif)
+                .map(s=>{const rec=epiRecords?.[s.code];return{...s,rec,lastUpdate:rec?.lastUpdate}})
+                .sort((a,b)=>{
+                  // Récentes en haut, jamais en bas
+                  if(!a.lastUpdate&&!b.lastUpdate)return 0;
+                  if(!a.lastUpdate)return 1;if(!b.lastUpdate)return-1;
+                  return new Date(b.lastUpdate)-new Date(a.lastUpdate);
+                })
+                .map(s=>{
+                const rec=s.rec;
+                const overdue=isEpiOverdue(rec?.lastUpdate,rec?.firstSeen);
+                const jours=joursDepuisEpi(rec?.lastUpdate);
+                const restants=joursRestantsEpi(rec?.lastUpdate,rec?.firstSeen);
+                const manquants=getEpiManquants(rec);
+                const nonValides=getEpiNonValides(rec);
+                const nbPhotos=rec?.photos?EPI_ITEMS.filter(e=>rec.photos[e.id]?.data).length:0;
+                const nbValides=rec?.validations?EPI_ITEMS.filter(e=>rec.validations[e.id]).length:0;
+                const ok=nbPhotos===EPI_ITEMS.length&&nbValides===EPI_ITEMS.length;
+                const isExpanded=epiViewCode===s.code;
+
+                return(<div key={s.code}>
+                  <div style={{display:"flex",alignItems:"center",background:"#0B0C14",borderRadius:isExpanded?"12px 12px 0 0":"12px",padding:"10px 14px",border:`1px solid ${ok?"#26de8118":overdue?"#fc5c6533":"#F7B73133"}`,gap:12,flexWrap:"wrap",cursor:"pointer"}} onClick={()=>setEpiViewCode(isExpanded?null:s.code)}>
+                    <div style={{width:38,height:38,borderRadius:10,background:"#FF5A1F22",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:14,color:"#FF5A1F",fontFamily:"'Barlow Condensed'",flexShrink:0}}>{s.code}</div>
+                    <div style={{flex:1,minWidth:100}}>
+                      <div style={{fontWeight:700,fontSize:14}}>{s.prenom} {s.nom}</div>
+                      <div style={{color:"#555",fontSize:12}}>{rec?.lastUpdate?`Mis à jour le ${fmt(rec.lastUpdate,"dateFull")}`:rec?.firstSeen?`Premier badge le ${fmt(rec.firstSeen,"dateFull")}`:"Jamais pointé"} · {nbPhotos}/{EPI_ITEMS.length} photos · {nbValides}/{EPI_ITEMS.length} validées</div>
+                    </div>
+                    <Tag color={ok?"#26de81":overdue?"#fc5c65":!rec?.firstSeen?"#555":"#F7B731"}>{ok?"✅ Conforme":overdue?"⛔ Bloqué":!rec?.firstSeen?"—":`${restants}j restants`}</Tag>
+                    <span style={{color:"#555",fontSize:14}}>{isExpanded?"▲":"▼"}</span>
+                  </div>
+
+                  {/* Photos inline sous le salarié */}
+                  {isExpanded&&(
+                    <div style={{background:"#0a0b12",borderRadius:"0 0 12px 12px",padding:16,border:"1px solid #1C1F35",borderTop:"none"}}>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:10}}>
+                        {EPI_ITEMS.map(item=>{
+                          const photo=rec?.photos?.[item.id];
+                          const validated=rec?.validations?.[item.id];
+                          return(
+                            <div key={item.id} style={{background:"#12131E",borderRadius:10,padding:10,border:`1px solid ${validated?"#26de8133":photo?"#F7B73133":"#252840"}`,textAlign:"center"}}>
+                              <div style={{fontSize:11,color:"#888",marginBottom:6,fontWeight:600}}>{item.icon} {item.label}</div>
+                              {photo?.data?(
+                                <div>
+                                  <img src={photo.data} style={{width:"100%",borderRadius:6,border:`2px solid ${validated?"#26de81":"#F7B731"}`,marginBottom:8}}/>
+                                  <div style={{fontSize:10,color:"#555",marginBottom:6}}>{photo.takenAt?fmt(photo.takenAt,"dateFull"):""}</div>
+                                  {validated?(
+                                    <Btn small full variant="success" onClick={async()=>{const updated={...rec,validations:{...rec.validations,[item.id]:false}};await fbSet(`epi/${s.code}`,updated);onRefresh()}}>✅ Validé</Btn>
+                                  ):(
+                                    <Btn small full variant="warning" onClick={async()=>{const updated={...rec,validations:{...rec.validations,[item.id]:true}};await fbSet(`epi/${s.code}`,updated);onRefresh();logAdminAction("valider_epi",{code:s.code,item:item.id})}}>⏳ Valider</Btn>
+                                  )}
+                                </div>
+                              ):(
+                                <div style={{paddingTop:"60%",position:"relative"}}>
+                                  <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",color:"#333",fontSize:12}}>Pas de photo</div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>);
+              })}
+            </div>}
+          </div>
+        </div>)}
+
+        {/* ── HISTORIQUE ── */}
+        {tab==="pointages"&&(()=>{
+          // ── Regrouper par jour puis par salarié ──────────────────────────────
+          const pFiltres=pointages.filter(p=>{
+            if(filterChantier!=="all"&&String(p.chantierId)!==String(filterChantier))return false;
+            if(filterDate&&!p.timestamp.startsWith(filterDate))return false;
+            return true;
+          });
+          // Jours uniques triés du plus récent au plus ancien
+          const joursSet=new Set(pFiltres.map(p=>p.timestamp.slice(0,10)));
+          const jours=[...joursSet].sort((a,b)=>b.localeCompare(a));
+          // Pour chaque jour, grouper par code salarié
+          function groupJour(jour){
+            const dp=pFiltres.filter(p=>p.timestamp.startsWith(jour));
+            const map={};
+            dp.forEach(p=>{
+              if(!map[p.code])map[p.code]={code:p.code,nom:p.nom,prenom:p.prenom,chantierNom:p.chantierNom,chantierId:p.chantierId,entree:null,sortie:null,gpsEntree:null,gpsSortie:null,spoofEntree:false,spoofSortie:false};
+              if(p.type==="entree"&&!map[p.code].entree){map[p.code].entree=p.timestamp;map[p.code].gpsEntree=p.distance;map[p.code].spoofEntree=!!p.spoofFlags;}
+              if(p.type==="sortie"&&!map[p.code].sortie){map[p.code].sortie=p.timestamp;map[p.code].gpsSortie=p.distance;map[p.code].spoofSortie=!!p.spoofFlags;}
+            });
+            return Object.values(map).sort((a,b)=>a.nom.localeCompare(b.nom));
+          }
+          const today=new Date().toISOString().slice(0,10);
+          return(<div className="anim">
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
+              <div style={{fontFamily:"'Barlow Condensed'",fontSize:24,fontWeight:800}}>Historique</div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                <Btn small onClick={()=>exporterExcel(pointages,chantiers,salaries)} variant="secondary">📊 Excel</Btn>
+                <Btn small onClick={()=>setShowManuel(true)} variant="secondary">✏️ Manuel</Btn>
+                <Btn small onClick={()=>{if(confirm("Supprimer aujourd'hui ?"))onClearToday()}} variant="danger">🗑️ Auj.</Btn>
+                <Btn small onClick={()=>{if(confirm("⚠️ TOUT supprimer ?"))onClearAll()}} variant="danger">🗑️ Tout</Btn>
+              </div>
+            </div>
+            {/* Filtres */}
+            <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
+              <select value={filterChantier} onChange={e=>setFilterChantier(e.target.value)} style={{maxWidth:200}}>
+                <option value="all">Tous les chantiers</option>
+                {chantiers.map(c=><option key={c.id} value={c.id}>{c.nom}</option>)}
+              </select>
+              <input type="date" value={filterDate} onChange={e=>setFilterDate(e.target.value)} style={{maxWidth:170}}/>
+              {filterDate&&<Btn small onClick={()=>setFilterDate("")} variant="ghost">✕</Btn>}
+              <Tag color="#FF5A1F">{pFiltres.length} pointages</Tag>
+            </div>
+            {jours.length===0
+              ?<div className="card" style={{padding:"50px 20px",textAlign:"center",color:"#555"}}>Aucun pointage</div>
+              :<div style={{display:"flex",flexDirection:"column",gap:16}}>
+                {jours.map(jour=>{
+                  const lignes=groupJour(jour);
+                  const isToday=jour===today;
+                  const dateLabel=new Date(jour+"T12:00:00").toLocaleDateString("fr-FR",{weekday:"long",day:"2-digit",month:"long",year:"numeric"});
+                  const nbAnomalies=lignes.filter(l=>!l.sortie||l.spoofEntree||l.spoofSortie).length;
+                  return(
+                    <div key={jour}>
+                      {/* En-tête du jour */}
+                      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+                        <div style={{fontFamily:"'Barlow Condensed'",fontSize:18,fontWeight:800,color:isToday?"#FF5A1F":"#f0f0f0",textTransform:"capitalize"}}>{isToday?"📅 Aujourd'hui — ":""}{dateLabel}</div>
+                        <Tag color="#7C5CBF">{lignes.length} salarié{lignes.length>1?"s":""}</Tag>
+                        {nbAnomalies>0&&<Tag color="#fc5c65">⚠️ {nbAnomalies} anomalie{nbAnomalies>1?"s":""}</Tag>}
+                      </div>
+                      {/* Tableau du jour */}
+                      <div style={{background:"#12131E",borderRadius:12,border:"1px solid #1C1F35",overflow:"auto"}}>
+                        <table style={{width:"100%",borderCollapse:"collapse",minWidth:480}}>
+                          <thead>
+                            <tr style={{background:"#0B0C14"}}>
+                              {["Salarié","Chantier","Arrivée","Départ","Durée","Statut"].map(h=>(
+                                <th key={h} style={{padding:"9px 14px",textAlign:"left",color:"#444",fontSize:10,fontWeight:700,letterSpacing:1,borderBottom:"1px solid #1C1F35",whiteSpace:"nowrap"}}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {lignes.map((l,i)=>{
+                              const now=new Date();
+                              const apres18h=now.getHours()>=18||!isToday;
+                              const manqueSortie=l.entree&&!l.sortie&&!isToday;
+                              const enCours=l.entree&&!l.sortie&&isToday;
+                              const alerte18h=apres18h&&(!l.entree||!l.sortie);
+                              const complet=l.entree&&l.sortie;
+                              const spoof=l.spoofEntree||l.spoofSortie;
+                              let duree="—";
+                              if(l.entree&&l.sortie){
+                                const d=new Date(l.sortie)-new Date(l.entree);
+                                if(d>0){const h=Math.floor(d/3600000);const m=Math.floor((d%3600000)/60000);duree=`${h}h${m.toString().padStart(2,"0")}`}
+                              }
+                              // Couleur fond : vert=sur site, turquoise=complet, jaune=alerte 18h, neutre sinon
+                              const rowBg=complet?"#0a3d4a":enCours&&!alerte18h?"#0f2a1f":alerte18h?"#2a2600":i%2?"#0a0b12":"transparent";
+                              const rowBorder=complet?"#4ECDC422":enCours&&!alerte18h?"#26de8122":alerte18h?"#F7B73122":"#1C1F3522";
+                              return(
+                                <tr key={l.code} style={{borderBottom:`1px solid ${rowBorder}`,background:rowBg}}>
+                                  <td style={{padding:"10px 14px"}}>
+                                    <div style={{fontWeight:700,fontSize:13}}>{l.prenom} {l.nom}</div>
+                                    <div style={{color:"#555",fontSize:11}}>{l.code}</div>
+                                  </td>
+                                  <td style={{padding:"10px 14px",fontSize:12,color:"#888"}}>{l.chantierNom}</td>
+                                  <td style={{padding:"10px 14px"}}>
+                                    {l.entree
+                                      ?<div style={{display:"flex",alignItems:"center",gap:6}}>
+                                          <div style={{fontWeight:700,fontSize:14,color:"#26de81"}}>{fmt(l.entree)}</div>
+                                          {l.spoofEntree&&<span title="GPS suspect" style={{width:8,height:8,borderRadius:"50%",background:"#FF5A1F",display:"inline-block",flexShrink:0}}/>}
+                                        </div>
+                                      :<div style={{color:alerte18h?"#F7B731":"#333",fontSize:13,fontWeight:alerte18h?700:400}}>{alerte18h?"⚠ ?":"—"}</div>}
+                                  </td>
+                                  <td style={{padding:"10px 14px"}}>
+                                    {l.sortie
+                                      ?<div style={{display:"flex",alignItems:"center",gap:6}}>
+                                          <div style={{fontWeight:700,fontSize:14,color:"#4ECDC4"}}>{fmt(l.sortie)}</div>
+                                          {l.spoofSortie&&<span title="GPS suspect" style={{width:8,height:8,borderRadius:"50%",background:"#FF5A1F",display:"inline-block",flexShrink:0}}/>}
+                                        </div>
+                                      :<div style={{color:alerte18h?"#F7B731":"#555",fontSize:13,fontWeight:alerte18h?700:400}}>{enCours&&!alerte18h?"En cours…":alerte18h?"⚠ ?":"—"}</div>}
+                                  </td>
+                                  <td style={{padding:"10px 14px",fontWeight:700,fontSize:13,color:duree!=="—"?"#4ECDC4":"#333"}}>{duree}</td>
+                                  <td style={{padding:"10px 14px"}}>
+                                    {complet&&!spoof&&<Tag color="#4ECDC4">✅ Complet</Tag>}
+                                    {enCours&&!alerte18h&&<Tag color="#26de81">🟢 Sur site</Tag>}
+                                    {alerte18h&&!complet&&<Tag color="#F7B731">⚠️ À vérifier</Tag>}
+                                    {spoof&&<span style={{display:"inline-flex",alignItems:"center",gap:5}}><span style={{width:10,height:10,borderRadius:"50%",background:"#FF5A1F",display:"inline-block"}}/><span style={{color:"#FF5A1F",fontSize:11,fontWeight:700}}>GPS suspect</span></span>}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            }
+          </div>);
+        })()}
+      </div>
+
+      {showQR&&<QRModal chantier={showQR} onClose={()=>setShowQR(null)} onChangeQR={id=>onChangeQR(id)}/>}
+      {showPresence&&<PresenceModal chantier={showPresence} pointages={pointages} salaries={salaries} onClose={()=>setShowPresence(null)} onPurgeSalarie={onPurgeSalarie}/>}
+      {showAdd&&<ChantierForm initial={null} onSave={d=>{onSaveChantier(d);setShowAdd(false)}} onClose={()=>setShowAdd(false)}/>}
+      {editItem&&<ChantierForm initial={editItem} onSave={d=>{onSaveChantier(d);setEditItem(null)}} onClose={()=>setEditItem(null)}/>}
+      {showManuel&&<SaisieManuelleModal chantiers={chantiers} salaries={salaries} onSave={p=>{onAddManuel(p);setShowManuel(false)}} onClose={()=>setShowManuel(false)}/>}
+      {showAddSal&&<SalarieForm initial={null} salaries={salaries} onSave={s=>{onSaveSalarie(s,null);setShowAddSal(false)}} onClose={()=>setShowAddSal(false)}/>}
+      {editSal&&<SalarieForm initial={editSal} salaries={salaries} onSave={s=>{onSaveSalarie(s,editSal.code);setEditSal(false)}} onClose={()=>setEditSal(null)} onDelete={code=>{onDeleteSalarie(code);setEditSal(null)}}/>}
+    </div>
+  );
+}
+
+// ─── LOGIN ───────────────────────────────────────────────────────────────────
+function AccesPage({onLogin}){
+  const[pw,setPw]=useState("");const[err,setErr]=useState("");const[loading,setLoading]=useState(false);
+  async function go(){
+    setLoading(true);setErr("");await new Promise(r=>setTimeout(r,400));
+    const h=await sha256(pw);
+    if(h===_HASH){
+      saveLocal("vonerlec:session","ok");
+      onLogin();
+    }else{setErr("Mot de passe incorrect");setLoading(false)}
+  }
+  return(<div style={{minHeight:"100vh",background:"#0B0C14",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}><style>{css}</style><div className="anim" style={{textAlign:"center",maxWidth:360,width:"100%"}}><div style={{fontSize:60,marginBottom:6}}>🏗️</div><div style={{fontFamily:"'Bebas Neue'",fontSize:48,color:"#FF5A1F",letterSpacing:4,lineHeight:1}}>VONERLEC</div><div style={{color:"#444",marginBottom:34,fontSize:12,letterSpacing:2,fontWeight:500}}>GESTION DE CHANTIER</div><div style={{background:"#12131E",borderRadius:16,padding:28,border:"1px solid #1C1F35"}}><label style={{color:"#555",fontSize:11,letterSpacing:1,display:"block",textAlign:"left",marginBottom:8,fontWeight:600}}>CODE D'ACCÈS</label><input type="password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&go()} placeholder="••••••••" autoFocus style={{marginBottom:10,letterSpacing:4}}/>{err&&<div style={{color:"#fc5c65",fontSize:13,marginBottom:10,textAlign:"left"}}>⚠️ {err}</div>}<button onClick={go} disabled={loading||!pw} style={{width:"100%",padding:14,borderRadius:10,border:"none",background:loading||!pw?"#1C1F35":"linear-gradient(135deg,#FF5A1F,#FF7A45)",color:loading||!pw?"#444":"#fff",fontWeight:700,fontSize:15,cursor:loading||!pw?"not-allowed":"pointer",marginTop:4}}>{loading?"...":"ACCÉDER →"}</button></div></div></div>);
+}
+
+// ─── ROOT ────────────────────────────────────────────────────────────────────
+function App(){
+  const[view,setView]=useState("loading");
+  const[chantiers,setChantiers]=useState([]);const[pointages,setPointages]=useState([]);
+  const[salaries,setSalaries]=useState([]);const[epiRecords,setEpiRecords]=useState({});
+  const[epiConfig,setEpiConfig]=useState({actif:false,frequence:"semaine",bloquer:false});
+  const[badgeChantier,setBadgeChantier]=useState(null);
+  const[storageUsed,setStorageUsed]=useState(0);
+  const[alerts,setAlerts]=useState([]);
+  const[offline,setOffline]=useState(false);
+  const writeLock=useRef(false); // Bloque le refresh auto pendant les écritures
+
+  async function loadAll(){
+    if(writeLock.current)return; // Ne pas écraser un write en cours
+    const[rawC,rawP,rawS,rawE,rawEC,rawA]=await Promise.all([fbGet("chantiers"),fbGet("pointages"),fbGet("salaries"),fbGet("epi"),fbGet("epiConfig"),fbGet("alerts")]);
+    // Détection hors ligne : si tous null → Firebase inaccessible
+    if(!rawC&&!rawP&&!rawS){setOffline(true);return;}
+    setOffline(false);
+    const c=rawC?Object.values(rawC):[];setChantiers(c);
+    const p=rawP?Object.values(rawP).sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp)):[];setPointages(p);
+    let s=rawS?Object.values(rawS):[];
+    // Initialiser les salariés par défaut si la base est vide
+    if(s.length===0){
+      s=DEFAULT_SALARIES;
+      await fbSet("salaries",s.reduce((a,x)=>{a[x.code]=x;return a},{}));
+    }
+    setSalaries(s);
+    const e=rawE||{};setEpiRecords(e);
+    if(rawEC)setEpiConfig(rawEC);
+    const a=rawA?Object.entries(rawA).map(([k,v])=>({...v,_key:k})).sort((x,y)=>new Date(y.timestamp)-new Date(x.timestamp)):[];setAlerts(a);
+    // Estimation stockage en arrière-plan
+    estimerStockage().then(bytes=>setStorageUsed(bytes)).catch(()=>{});
+    return{c,p,s,e};
+  }
+
+  useEffect(()=>{
+    (async()=>{
+      const fromQR=decodeQRData(window.location.hash);
+      if(fromQR){
+        await loadAll();
+        const ch=await loadChantierFromFirebase(fromQR.id);
+        if(ch&&ch.qrVersion===fromQR.qrVersion){setBadgeChantier(ch);setView("badge");}
+        else{setBadgeChantier(null);setView("badge");}
+        return;
+      }
+      const session=loadLocal("vonerlec:session");
+      if(session==="ok"){await loadAll();setView("admin");}
+      else{await loadAll();setView("login");}
+    })().catch(()=>{setView("login")});
+  },[]);
+
+  const persistC=async l=>{setChantiers(l);const ok=await fbSet("chantiers",l.reduce((a,c)=>{a[c.id]=c;return a},{}));if(!ok)alert("⚠️ Erreur Firebase : modification non enregistrée.\nVérifiez vos règles Firebase.")};
+  const persistP=async l=>{setPointages(l);await fbSet("pointages",l.reduce((a,p)=>{a[p.id?String(p.id):"p_"+Math.random().toString(36).slice(2,10)]=p;return a},{}))};
+  const persistS=async l=>{setSalaries(l);const ok=await fbSet("salaries",l.reduce((a,s)=>{a[s.code]=s;return a},{}));if(!ok)alert("⚠️ Erreur Firebase : modification non enregistrée.\nVérifiez vos règles Firebase.")};
+
+  const persistC=async l=>{writeLock.current=true;setChantiers(l);const ok=await fbSet("chantiers",l.reduce((a,c)=>{a[c.id]=c;return a},{}));writeLock.current=false;if(!ok)alert("⚠️ Erreur Firebase : modification non enregistrée.\nVérifiez vos règles Firebase.")};
+  const persistP=async l=>{writeLock.current=true;setPointages(l);await fbSet("pointages",l.reduce((a,p)=>{a[p.id?String(p.id):"p_"+Math.random().toString(36).slice(2,10)]=p;return a},{}));writeLock.current=false};
+  const persistS=async l=>{writeLock.current=true;setSalaries(l);const ok=await fbSet("salaries",l.reduce((a,s)=>{a[s.code]=s;return a},{}));writeLock.current=false;if(!ok)alert("⚠️ Erreur Firebase : modification non enregistrée.\nVérifiez vos règles Firebase.")};
+
+  function handleSaveChantier(d){
+    let l;if(d.id){l=chantiers.map(c=>c.id===d.id?{...d,qrVersion:c.qrVersion||1,qrChangedAt:c.qrChangedAt}:c);logAdminAction("modifier_chantier",{id:d.id,nom:d.nom})}
+    else{const newId=chantiers.length>0?Math.max(...chantiers.map(x=>x.id||0))+1:100;l=[...chantiers,{...d,id:newId,qrVersion:1,qrChangedAt:new Date().toISOString()}];logAdminAction("creer_chantier",{id:newId,nom:d.nom})}
+    persistC(l);
+  }
+  async function handleSaveSalarie(s,ancienCode){
+    if(ancienCode&&ancienCode!==s.code){
+      await fbDelete(`salaries/${ancienCode}`);
+      const updated=salaries.map(x=>x.code===ancienCode?s:x);
+      await persistS(updated);
+      logAdminAction("modifier_code_salarie",{ancienCode,nouveauCode:s.code});
+    }else{
+      const exists=salaries.find(x=>x.code===s.code);
+      if(exists){await persistS(salaries.map(x=>x.code===s.code?s:x));logAdminAction("modifier_salarie",{code:s.code,nom:s.nom,prenom:s.prenom})}
+      else{await persistS([...salaries,s]);logAdminAction("creer_salarie",{code:s.code,nom:s.nom,prenom:s.prenom})}
+    }
+  }
+  async function handleDeleteSalarie(code){
+    const s=salaries.find(x=>x.code===code);
+    await fbDelete(`salaries/${code}`);
+    await persistS(salaries.filter(x=>x.code!==code));
+    logAdminAction("supprimer_salarie",{code,nom:s?.nom,prenom:s?.prenom});
+  }
+  async function handleSaveEpiConfig(cfg){setEpiConfig(cfg);await fbSet("epiConfig",cfg);logAdminAction("modifier_epi_config",cfg)}
+
+  // Nettoyage automatique des sessions > 2 jours
+  useEffect(()=>{
+    async function nettoyerSessions(){
+      const raw=await fbGet("sessions");
+      if(!raw)return;
+      const today=todayKey();
+      const hier=new Date();hier.setDate(hier.getDate()-1);
+      const hierKey=hier.toISOString().slice(0,10).replace(/-/g,"");
+      Object.entries(raw).forEach(([k,v])=>{
+        if(v.date&&v.date!==today&&v.date!==hierKey){
+          fbDelete(`sessions/${k}`);
+        }
+      });
+    }
+    nettoyerSessions();
+  },[]);
+  async function handleTraiterAlerte(key){
+    await fbDelete(`alerts/${key}`);
+    setAlerts(prev=>prev.filter(a=>a._key!==key));
+  }
+
+  if(view==="loading")return <div style={{minHeight:"100vh",background:"#0B0C14",display:"flex",alignItems:"center",justifyContent:"center"}}><style>{css}</style><div style={{fontFamily:"'Bebas Neue'",fontSize:28,color:"#FF5A1F",letterSpacing:4,animation:"pulse 1.5s infinite"}}>VONERLEC...</div></div>;
+  if(view==="badge")return <BadgePage chantier={badgeChantier} salaries={salaries} epiConfig={epiConfig}/>;
+  if(view==="login")return <AccesPage onLogin={()=>{loadAll();setView("admin")}}/>;
+
+  return <AdminApp
+    chantiers={chantiers} pointages={pointages} salaries={salaries} epiRecords={epiRecords} epiConfig={epiConfig} storageUsed={storageUsed} alerts={alerts} offline={offline}
+    onSaveChantier={handleSaveChantier}
+    onDeleteChantier={async id=>{const ch=chantiers.find(c=>c.id===id);await persistC(chantiers.filter(c=>c.id!==id));logAdminAction("supprimer_chantier",{id,nom:ch?.nom})}}
+    onDeletePointage={async id=>{await persistP(pointages.filter(p=>p.id!==id));logAdminAction("supprimer_pointage",{id})}}
+    onChangeQR={id=>{persistC(chantiers.map(c=>c.id===id?{...c,qrVersion:(c.qrVersion||1)+1,qrChangedAt:new Date().toISOString()}:c));logAdminAction("changer_qr",{chantierId:id})}}
+    onLogout={()=>{saveLocal("vonerlec:session",null);setView("login")}}
+    onRefresh={loadAll}
+    onAddManuel={async p=>{const u=[p,...pointages].sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));await persistP(u);logAdminAction("saisie_manuelle",{code:p.code,type:p.type,chantier:p.chantierNom})}}
+    onClearAll={async()=>{await fbDelete("pointages");await fbDelete("sessions");setPointages([]);logAdminAction("supprimer_tout",{count:pointages.length})}}
+    onClearToday={async()=>{const t=new Date().toDateString();const n=pointages.filter(p=>new Date(p.timestamp).toDateString()===t).length;await persistP(pointages.filter(p=>new Date(p.timestamp).toDateString()!==t));await fbDelete("sessions");logAdminAction("supprimer_aujourdhui",{count:n})}}
+    onPurgeSalarie={async(cId,code)=>{const t=new Date().toDateString();await persistP(pointages.filter(p=>!(new Date(p.timestamp).toDateString()===t&&p.chantierId===cId&&p.code===code)));await deleteSession(code,cId);logAdminAction("purger_salarie",{code,chantierId:cId})}}
+    onSaveSalarie={handleSaveSalarie}
+    onDeleteSalarie={handleDeleteSalarie}
+    onSaveEpiConfig={handleSaveEpiConfig}
+    onTraiterAlerte={handleTraiterAlerte}
+  />;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
